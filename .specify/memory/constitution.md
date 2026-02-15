@@ -1,50 +1,91 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+<!--
+Sync Impact Report
+- Version change: n/a -> 1.0.0
+- Modified principles:
+	- [PRINCIPLE_1_NAME] -> I. GitOps Source of Truth
+	- [PRINCIPLE_2_NAME] -> II. Continuous Reconciliation
+	- [PRINCIPLE_3_NAME] -> III. Container-First Runtime
+	- [PRINCIPLE_4_NAME] -> IV. Safe Docker Compose Apply
+	- [PRINCIPLE_5_NAME] -> V. Automated Testing Baseline
+- Added sections: none
+- Removed sections: none
+- Templates requiring updates:
+	- .specify/templates/plan-template.md (updated)
+	- .specify/templates/spec-template.md (updated)
+	- .specify/templates/tasks-template.md (updated)
+	- .specify/templates/commands/*.md (missing, no update)
+- Follow-up TODOs: none
+-->
+# Docker CD Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. GitOps Source of Truth
+The desired state stored in Git MUST be the only authoritative source.
+The system MUST reconcile actual state to match Git on every event or
+scheduled loop. Manual changes outside Git MUST be reverted or flagged
+as drift with explicit operator acknowledgement.
+Rationale: Deterministic deployments require a single source of truth.
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+### II. Continuous Reconciliation
+Reconciliation MUST be idempotent, safe to retry, and converge on the
+desired state. The service MUST react to webhook events and also perform
+periodic reconciliation to catch missed events.
+Rationale: Webhooks are best-effort, so convergence must not depend on
+any single event delivery.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### III. Container-First Runtime
+The system MUST run as a containerized, long-lived service with health
+checks. Configuration MUST be provided via environment variables and/or
+mounted configuration files, never hard-coded.
+Rationale: The product itself is meant to manage containers and should
+deploy consistently across environments.
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+### IV. Safe Docker Compose Apply
+All runtime changes MUST be applied via `docker compose` using a declared
+project name and compose file(s). The reconciler MUST compute a plan
+(create/update/remove) before applying changes. Destructive actions MUST
+require an explicit opt-in setting.
+Rationale: Safe reconciliation requires predictability and guardrails
+around deletions.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### V. Automated Testing Baseline
+Automated tests MUST cover webhook handling, reconciliation logic, and
+compose apply behavior. Integration tests SHOULD run against real Docker
+Compose in CI when feasible, and unit tests MUST isolate core logic.
+Rationale: A continuous delivery agent without tests is a source of
+deploy risk.
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+## Operational Constraints
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+- GitHub webhooks MUST be verified with HMAC signatures.
+- Logs MUST be structured (JSON) and include correlation IDs per event.
+- Configuration MUST support: repository URL, branch/ref, path to
+	compose files, project name, poll interval, and drift policy.
+- The service MUST not store long-lived secrets in its own state; use
+	environment or mounted secrets instead.
+- Technology selection (language/framework) MUST be documented in the
+	first feature spec and implementation plan.
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+## Development Workflow
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+- Every feature MUST include a spec and plan under `specs/` before
+	implementation work begins.
+- CI MUST run automated tests on every pull request.
+- Changes that affect reconciliation behavior MUST include a regression
+	test that fails before the fix.
+- Each release MUST include a changelog entry that calls out any
+	operational impact or new configuration.
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+- This constitution supersedes other project guidance.
+- Amendments require a documented rationale and a version bump following
+	semantic versioning: MAJOR for breaking governance changes, MINOR for
+	new principles or material expansion, PATCH for clarifications.
+- Every plan MUST include a Constitution Check section that verifies
+	compliance with each principle.
+- Compliance review is REQUIRED during PR review; non-compliance must be
+	resolved or explicitly approved with justification.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Version**: 1.0.0 | **Ratified**: 2026-02-15 | **Last Amended**: 2026-02-15

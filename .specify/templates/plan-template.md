@@ -31,7 +31,11 @@
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-[Gates determined based on constitution file]
+- GitOps source of truth: repo/ref/path defined; drift policy documented
+- Continuous reconciliation: webhook + periodic reconcile strategy defined
+- Container-first runtime: container deployment + health checks planned
+- Safe compose apply: plan/diff + destructive opt-in handling documented
+- Automated testing baseline: unit and integration test coverage planned
 
 ## Project Structure
 

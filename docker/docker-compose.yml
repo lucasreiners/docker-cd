@@ -1,0 +1,14 @@
+services:
+  docker-cd:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - PORT=8080
+      - PROJECT_NAME=Docker-CD
+      - GIN_MODE=release
+    restart: unless-stopped

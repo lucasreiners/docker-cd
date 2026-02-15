@@ -1,0 +1,34 @@
+openapi: 3.0.3
+info:
+  title: Docker-CD Skeleton Runtime API
+  version: 0.1.0
+servers:
+  - url: http://localhost:8080
+paths:
+  /:
+    get:
+      summary: Render Docker-CD status page
+      description: Returns ASCII art and the current running container count.
+      responses:
+        "200":
+          description: Status page rendered successfully
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: |
+                ____             _             ____ ____
+               |  _ \  ___   ___| | _____ _ __/ ___/ ___|
+               | | | |/ _ \ / __| |/ / _ \ '__\___ \___ \
+               | |_| | (_) | (__|   <  __/ |   ___) |__) |
+               |____/ \___/ \___|_|\_\___|_|  |____/____/
+
+                Docker-CD
+                Running containers: 3
+        "500":
+          description: Docker CLI error
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "docker CLI error: permission denied"
