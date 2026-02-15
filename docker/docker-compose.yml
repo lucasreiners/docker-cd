@@ -15,4 +15,6 @@ services:
       - GIT_ACCESS_TOKEN=${GIT_ACCESS_TOKEN}
       - GIT_REVISION=${GIT_REVISION:-main}
       - GIT_DEPLOY_DIR=${GIT_DEPLOY_DIR:-}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
+      - REFRESH_POLL_INTERVAL=${REFRESH_POLL_INTERVAL:-5m}
     restart: unless-stopped

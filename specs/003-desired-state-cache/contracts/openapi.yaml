@@ -1,0 +1,111 @@
+openapi: 3.0.3
+info:
+  title: Docker-CD Desired State API
+  version: 1.0.0
+paths:
+  /api/refresh:
+    post:
+      summary: Trigger a manual desired-state refresh
+      responses:
+        "200":
+          description: Refresh accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RefreshResponse"
+  /api/webhook:
+    post:
+      summary: Trigger a webhook desired-state refresh
+      parameters:
+        - name: X-Hub-Signature-256
+          in: header
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Refresh accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RefreshResponse"
+        "401":
+          description: Invalid webhook signature
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/refresh-status:
+    get:
+      summary: Get the current refresh status and cached Git revision
+      responses:
+        "200":
+          description: Refresh status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RefreshStatus"
+  /api/stacks:
+    get:
+      summary: Get all stacks with sync status
+      responses:
+        "200":
+          description: Stack list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StackRecord"
+components:
+  schemas:
+    RefreshResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [refreshing, queued, completed, failed]
+        message:
+          type: string
+      required: [status]
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+    RefreshStatus:
+      type: object
+      properties:
+        revision:
+          type: string
+        ref:
+          type: string
+        refType:
+          type: string
+          enum: [branch, tag, commit]
+        refreshedAt:
+          type: string
+          format: date-time
+        refreshStatus:
+          type: string
+          enum: [refreshing, queued, completed, failed]
+          description: System-wide Git refresh status
+        refreshError:
+          type: string
+      required: [revision, refreshedAt, refreshStatus]
+    StackRecord:
+      type: object
+      properties:
+        path:
+          type: string
+        composeFile:
+          type: string
+          enum: [docker-compose.yml, docker-compose.yaml]
+        composeHash:
+          type: string
+        status:
+          type: string
+          enum: [missing, syncing, synced, deleting]
+          description: Per-stack sync status
+      required: [path, composeFile, composeHash, status]

@@ -7,9 +7,11 @@ import (
 	"time"
 
 	"github.com/lucasreiners/docker-cd/internal/config"
+	"github.com/lucasreiners/docker-cd/internal/desiredstate"
 	"github.com/lucasreiners/docker-cd/internal/docker"
 	gitval "github.com/lucasreiners/docker-cd/internal/git"
 	handler "github.com/lucasreiners/docker-cd/internal/http"
+	"github.com/lucasreiners/docker-cd/internal/refresh"
 )
 
 func main() {
@@ -48,7 +50,16 @@ func main() {
 
 	runner := &docker.ExecRunner{}
 
-	router := handler.NewRouter(runner, cfg)
+	// Initialize desired-state refresh pipeline
+	store := desiredstate.NewStore()
+	queue := refresh.NewQueue()
+	composeReader := &gitval.GoGitComposeReader{}
+	refreshSvc := refresh.NewService(cfg, store, queue, composeReader)
+
+	// Start background refresh loop (startup + periodic polling)
+	go refreshSvc.Start(context.Background())
+
+	router := handler.NewRouter(runner, cfg, refreshSvc, store)
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	log.Printf("Docker-CD starting on %s", addr)

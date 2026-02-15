@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Config holds runtime configuration for the Docker-CD service.
@@ -19,6 +20,10 @@ type Config struct {
 	GitAccessToken string
 	GitRevision    string
 	GitDeployDir   string
+
+	// Refresh settings
+	WebhookSecret       string
+	RefreshPollInterval time.Duration
 }
 
 // Load reads configuration from environment variables, falling back to defaults.
@@ -46,14 +51,26 @@ func Load() (Config, []string) {
 	gitRevision := os.Getenv("GIT_REVISION")
 	gitDeployDir := os.Getenv("GIT_DEPLOY_DIR")
 
+	webhookSecret := os.Getenv("WEBHOOK_SECRET")
+
+	var refreshPollInterval time.Duration
+	if v := os.Getenv("REFRESH_POLL_INTERVAL"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err == nil && d > 0 {
+			refreshPollInterval = d
+		}
+	}
+
 	cfg := Config{
-		Port:           port,
-		ProjectName:    projectName,
-		DockerSocket:   dockerSocket,
-		GitRepoURL:     gitRepoURL,
-		GitAccessToken: gitAccessToken,
-		GitRevision:    gitRevision,
-		GitDeployDir:   gitDeployDir,
+		Port:                port,
+		ProjectName:         projectName,
+		DockerSocket:        dockerSocket,
+		GitRepoURL:          gitRepoURL,
+		GitAccessToken:      gitAccessToken,
+		GitRevision:         gitRevision,
+		GitDeployDir:        gitDeployDir,
+		WebhookSecret:       webhookSecret,
+		RefreshPollInterval: refreshPollInterval,
 	}
 
 	var errs []string

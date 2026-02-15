@@ -1,6 +1,6 @@
 <!--
 Sync Impact Report
-- Version change: n/a -> 1.0.0
+- Version change: 1.0.0 -> 1.1.0
 - Modified principles:
 	- [PRINCIPLE_1_NAME] -> I. GitOps Source of Truth
 	- [PRINCIPLE_2_NAME] -> II. Continuous Reconciliation
@@ -58,8 +58,8 @@ deploy risk.
 
 ## Operational Constraints
 
-- GitHub webhooks MUST be verified with HMAC signatures.
-- Logs MUST be structured (JSON) and include correlation IDs per event.
+- Webhook verification MUST be supported, with configuration defined per feature (e.g., optional shared secret).
+- Logs MUST include clear severity levels (info/warn/error) to support debugging.
 - Configuration MUST support: repository URL, branch/ref, path to
 	compose files, project name, poll interval, and drift policy.
 - The service MUST not store long-lived secrets in its own state; use
@@ -88,4 +88,4 @@ deploy risk.
 - Compliance review is REQUIRED during PR review; non-compliance must be
 	resolved or explicitly approved with justification.
 
-**Version**: 1.0.0 | **Ratified**: 2026-02-15 | **Last Amended**: 2026-02-15
+**Version**: 1.1.0 | **Ratified**: 2026-02-15 | **Last Amended**: 2026-02-15

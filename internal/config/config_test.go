@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lucasreiners/docker-cd/internal/config"
 )
@@ -148,5 +149,85 @@ func TestLoad_GitDeployDirOverride(t *testing.T) {
 	}
 	if cfg.GitDeployDir != "deployments/host-a" {
 		t.Errorf("expected deploy dir deployments/host-a, got %q", cfg.GitDeployDir)
+	}
+}
+
+func TestLoad_WebhookSecretDefault(t *testing.T) {
+	t.Setenv("GIT_REPO_URL", "https://github.com/example/repo.git")
+	t.Setenv("GIT_ACCESS_TOKEN", "tok")
+	t.Setenv("GIT_REVISION", "main")
+	os.Unsetenv("WEBHOOK_SECRET")
+
+	cfg, errs := config.Load()
+
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors, got %v", errs)
+	}
+	if cfg.WebhookSecret != "" {
+		t.Errorf("expected empty webhook secret by default, got %q", cfg.WebhookSecret)
+	}
+}
+
+func TestLoad_WebhookSecretOverride(t *testing.T) {
+	t.Setenv("GIT_REPO_URL", "https://github.com/example/repo.git")
+	t.Setenv("GIT_ACCESS_TOKEN", "tok")
+	t.Setenv("GIT_REVISION", "main")
+	t.Setenv("WEBHOOK_SECRET", "my-secret-value")
+
+	cfg, errs := config.Load()
+
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors, got %v", errs)
+	}
+	if cfg.WebhookSecret != "my-secret-value" {
+		t.Errorf("expected webhook secret my-secret-value, got %q", cfg.WebhookSecret)
+	}
+}
+
+func TestLoad_RefreshPollIntervalDefault(t *testing.T) {
+	t.Setenv("GIT_REPO_URL", "https://github.com/example/repo.git")
+	t.Setenv("GIT_ACCESS_TOKEN", "tok")
+	t.Setenv("GIT_REVISION", "main")
+	os.Unsetenv("REFRESH_POLL_INTERVAL")
+
+	cfg, errs := config.Load()
+
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors, got %v", errs)
+	}
+	if cfg.RefreshPollInterval != 0 {
+		t.Errorf("expected zero poll interval by default, got %v", cfg.RefreshPollInterval)
+	}
+}
+
+func TestLoad_RefreshPollIntervalValid(t *testing.T) {
+	t.Setenv("GIT_REPO_URL", "https://github.com/example/repo.git")
+	t.Setenv("GIT_ACCESS_TOKEN", "tok")
+	t.Setenv("GIT_REVISION", "main")
+	t.Setenv("REFRESH_POLL_INTERVAL", "60s")
+
+	cfg, errs := config.Load()
+
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors, got %v", errs)
+	}
+	if cfg.RefreshPollInterval != 60*time.Second {
+		t.Errorf("expected 60s poll interval, got %v", cfg.RefreshPollInterval)
+	}
+}
+
+func TestLoad_RefreshPollIntervalInvalid(t *testing.T) {
+	t.Setenv("GIT_REPO_URL", "https://github.com/example/repo.git")
+	t.Setenv("GIT_ACCESS_TOKEN", "tok")
+	t.Setenv("GIT_REVISION", "main")
+	t.Setenv("REFRESH_POLL_INTERVAL", "notaduration")
+
+	cfg, errs := config.Load()
+
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors, got %v", errs)
+	}
+	if cfg.RefreshPollInterval != 0 {
+		t.Errorf("expected zero poll interval for invalid value, got %v", cfg.RefreshPollInterval)
 	}
 }

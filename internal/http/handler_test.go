@@ -2,6 +2,9 @@ package handler_test
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -10,7 +13,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lucasreiners/docker-cd/internal/config"
+	"github.com/lucasreiners/docker-cd/internal/desiredstate"
 	handler "github.com/lucasreiners/docker-cd/internal/http"
+	"github.com/lucasreiners/docker-cd/internal/refresh"
 )
 
 type stubRunner struct {
@@ -24,7 +29,7 @@ func (s *stubRunner) Run(_ context.Context, _ string, _ ...string) ([]byte, erro
 
 func setupRouter(runner handler.CommandRunner, cfg config.Config) *gin.Engine {
 	gin.SetMode(gin.TestMode)
-	return handler.NewRouter(runner, cfg)
+	return handler.NewRouter(runner, cfg, nil, nil)
 }
 
 func TestRootHandler_Success(t *testing.T) {
@@ -124,5 +129,266 @@ func TestRootHandler_ShowsRepoInfo(t *testing.T) {
 	}
 	if strings.Contains(body, "secret-token-value") {
 		t.Errorf("response must NOT contain the access token, got:\n%s", body)
+	}
+}
+
+// --- Webhook handler tests (T014) ---
+
+func signPayload(secret, payload string) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(payload))
+	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
+}
+
+func setupRouterWithRefresh(runner handler.CommandRunner, cfg config.Config) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	store := desiredstate.NewStore()
+	queue := refresh.NewQueue()
+	svc := refresh.NewService(cfg, store, queue, nil)
+	return handler.NewRouter(runner, cfg, svc, store)
+}
+
+func TestWebhookHandler_NoSecretConfigured(t *testing.T) {
+	runner := &stubRunner{output: []byte("a\n")}
+	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
+
+	router := setupRouterWithRefresh(runner, cfg)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhook", strings.NewReader(`{"ref":"refs/heads/main"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `"status"`) {
+		t.Errorf("response should contain status field, got: %s", body)
+	}
+}
+
+func TestWebhookHandler_ValidSignature(t *testing.T) {
+	runner := &stubRunner{output: []byte("a\n")}
+	secret := "test-secret-123"
+	cfg := config.Config{
+		Port:          8080,
+		ProjectName:   "Docker-CD",
+		DockerSocket:  "/var/run/docker.sock",
+		WebhookSecret: secret,
+	}
+
+	router := setupRouterWithRefresh(runner, cfg)
+
+	payload := `{"ref":"refs/heads/main"}`
+	sig := signPayload(secret, payload)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhook", strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Hub-Signature-256", sig)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `"status"`) {
+		t.Errorf("response should contain status field, got: %s", body)
+	}
+}
+
+func TestWebhookHandler_InvalidSignature(t *testing.T) {
+	runner := &stubRunner{output: []byte("a\n")}
+	cfg := config.Config{
+		Port:          8080,
+		ProjectName:   "Docker-CD",
+		DockerSocket:  "/var/run/docker.sock",
+		WebhookSecret: "real-secret",
+	}
+
+	router := setupRouterWithRefresh(runner, cfg)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhook", strings.NewReader(`{"ref":"refs/heads/main"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Hub-Signature-256", "sha256=invalidsignature")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected status 401, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `"error"`) {
+		t.Errorf("response should contain error field, got: %s", body)
+	}
+}
+
+func TestWebhookHandler_MissingSignatureWhenRequired(t *testing.T) {
+	runner := &stubRunner{output: []byte("a\n")}
+	cfg := config.Config{
+		Port:          8080,
+		ProjectName:   "Docker-CD",
+		DockerSocket:  "/var/run/docker.sock",
+		WebhookSecret: "needs-sig",
+	}
+
+	router := setupRouterWithRefresh(runner, cfg)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/webhook", strings.NewReader(`{"ref":"refs/heads/main"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected status 401, got %d", w.Code)
+	}
+}
+
+// --- Manual refresh handler tests (T017) ---
+
+func TestManualRefreshHandler_ReturnsStatus(t *testing.T) {
+	runner := &stubRunner{output: []byte("a\n")}
+	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
+
+	router := setupRouterWithRefresh(runner, cfg)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/refresh", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `"status"`) {
+		t.Errorf("response should contain status field, got: %s", body)
+	}
+}
+
+// --- Refresh status handler tests (T017) ---
+
+func TestRefreshStatusHandler_ReturnsJSON(t *testing.T) {
+	runner := &stubRunner{output: []byte("a\n")}
+	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
+
+	store := desiredstate.NewStore()
+	queue := refresh.NewQueue()
+	svc := refresh.NewService(cfg, store, queue, nil)
+
+	gin.SetMode(gin.TestMode)
+	router := handler.NewRouter(runner, cfg, svc, store)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/refresh-status", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `"refreshStatus"`) {
+		t.Errorf("response should contain refreshStatus field, got: %s", body)
+	}
+}
+
+func TestRefreshStatusHandler_WithPopulatedStore(t *testing.T) {
+	runner := &stubRunner{output: []byte("a\n")}
+	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
+
+	store := desiredstate.NewStore()
+	store.Set(&desiredstate.Snapshot{
+		Revision:      "abc123",
+		Ref:           "main",
+		RefType:       "branch",
+		RefreshStatus: desiredstate.RefreshStatusCompleted,
+		Stacks: []desiredstate.StackRecord{
+			{Path: "app1", ComposeFile: "docker-compose.yml", ComposeHash: "hash1", Status: desiredstate.StackSyncSynced},
+		},
+	})
+	queue := refresh.NewQueue()
+	svc := refresh.NewService(cfg, store, queue, nil)
+
+	gin.SetMode(gin.TestMode)
+	router := handler.NewRouter(runner, cfg, svc, store)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/refresh-status", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `"abc123"`) {
+		t.Errorf("response should contain revision, got: %s", body)
+	}
+	// refresh-status should NOT contain stacks
+	if strings.Contains(body, `"app1"`) {
+		t.Errorf("refresh-status response should NOT contain stacks, got: %s", body)
+	}
+}
+
+// --- Stacks handler tests (T017) ---
+
+func TestStacksHandler_EmptyStore(t *testing.T) {
+	runner := &stubRunner{output: []byte("a\n")}
+	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
+
+	store := desiredstate.NewStore()
+	queue := refresh.NewQueue()
+	svc := refresh.NewService(cfg, store, queue, nil)
+
+	gin.SetMode(gin.TestMode)
+	router := handler.NewRouter(runner, cfg, svc, store)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/stacks", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if body != "[]" && !strings.Contains(body, "[]") {
+		t.Errorf("expected empty array, got: %s", body)
+	}
+}
+
+func TestStacksHandler_WithStacks(t *testing.T) {
+	runner := &stubRunner{output: []byte("a\n")}
+	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
+
+	store := desiredstate.NewStore()
+	store.Set(&desiredstate.Snapshot{
+		Revision:      "abc123",
+		RefreshStatus: desiredstate.RefreshStatusCompleted,
+		Stacks: []desiredstate.StackRecord{
+			{Path: "app1", ComposeFile: "docker-compose.yml", ComposeHash: "hash1", Status: desiredstate.StackSyncSynced},
+			{Path: "app2", ComposeFile: "docker-compose.yaml", ComposeHash: "hash2", Status: desiredstate.StackSyncMissing},
+		},
+	})
+	queue := refresh.NewQueue()
+	svc := refresh.NewService(cfg, store, queue, nil)
+
+	gin.SetMode(gin.TestMode)
+	router := handler.NewRouter(runner, cfg, svc, store)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/stacks", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `"app1"`) {
+		t.Errorf("response should contain app1, got: %s", body)
+	}
+	if !strings.Contains(body, `"app2"`) {
+		t.Errorf("response should contain app2, got: %s", body)
+	}
+	if !strings.Contains(body, `"synced"`) {
+		t.Errorf("response should contain synced status, got: %s", body)
 	}
 }

@@ -12,8 +12,24 @@ ArgoCD, but for Docker. A GitOps continuous delivery agent for Docker Compose en
 | `GIT_DEPLOY_DIR` | no | `/` (repo root) | Subdirectory within the repo |
 | `PORT` | no | `8080` | HTTP listen port |
 | `PROJECT_NAME` | no | `Docker-CD` | Name shown in status page |
+| `WEBHOOK_SECRET` | no | — | HMAC-SHA256 secret for GitHub webhook verification |
+| `REFRESH_POLL_INTERVAL` | no | — | Periodic refresh interval (e.g. `5m`, `30s`). Disabled if empty |
 
 The service validates repository access on startup and exits immediately if any required variable is missing or credentials are invalid.
+
+## API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/` | HTML status page with container count and repo info |
+| `POST` | `/api/webhook` | GitHub webhook endpoint (validates `X-Hub-Signature-256` if `WEBHOOK_SECRET` is set) |
+| `POST` | `/api/refresh` | Trigger a manual desired-state refresh |
+| `GET` | `/api/refresh-status` | Get current refresh status and cached Git revision |
+| `GET` | `/api/stacks` | List all stacks with sync status |
+
+### Webhook Setup
+
+Configure a GitHub webhook pointing to `https://your-host/api/webhook` with content type `application/json`. Set the same secret in both GitHub and the `WEBHOOK_SECRET` environment variable. If no secret is configured, all webhook requests are accepted without signature validation.
 
 ## Run
 
