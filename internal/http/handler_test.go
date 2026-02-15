@@ -89,3 +89,40 @@ func TestRootHandler_ZeroContainers(t *testing.T) {
 		t.Errorf("response should contain 'Running containers: 0', got:\n%s", body)
 	}
 }
+
+func TestRootHandler_ShowsRepoInfo(t *testing.T) {
+	runner := &stubRunner{output: []byte("a\n")}
+	cfg := config.Config{
+		Port:           8080,
+		ProjectName:    "Docker-CD",
+		DockerSocket:   "/var/run/docker.sock",
+		GitRepoURL:     "https://github.com/org/repo.git",
+		GitAccessToken: "secret-token-value",
+		GitRevision:    "main",
+		GitDeployDir:   "deployments/host-a",
+	}
+
+	router := setupRouter(runner, cfg)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	body := w.Body.String()
+	if !strings.Contains(body, "Repository: https://github.com/org/repo.git") {
+		t.Errorf("response should show repo URL, got:\n%s", body)
+	}
+	if !strings.Contains(body, "Revision: main") {
+		t.Errorf("response should show revision, got:\n%s", body)
+	}
+	if !strings.Contains(body, "Deploy dir: deployments/host-a") {
+		t.Errorf("response should show deploy dir, got:\n%s", body)
+	}
+	if strings.Contains(body, "secret-token-value") {
+		t.Errorf("response must NOT contain the access token, got:\n%s", body)
+	}
+}

@@ -11,4 +11,8 @@ services:
       - PORT=8080
       - PROJECT_NAME=Docker-CD
       - GIN_MODE=release
+      - GIT_REPO_URL=${GIT_REPO_URL}
+      - GIT_ACCESS_TOKEN=${GIT_ACCESS_TOKEN}
+      - GIT_REVISION=${GIT_REVISION:-main}
+      - GIT_DEPLOY_DIR=${GIT_DEPLOY_DIR:-}
     restart: unless-stopped

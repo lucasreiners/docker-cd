@@ -1,0 +1,32 @@
+openapi: 3.0.3
+info:
+  title: Docker-CD Status API
+  version: 0.2.0
+paths:
+  /:
+    get:
+      summary: Root status page
+      description: Returns the ASCII status page including repository configuration details (non-secret).
+      responses:
+        "200":
+          description: Status page rendered as plain text
+          content:
+            text/plain:
+              schema:
+                type: string
+              examples:
+                status:
+                  value: |
+                    ____            _              ____ ____
+                   |  _ \  ___  ___| | _____ _ __ / ___|  _ \
+                   | | | |/ _ \/ __| |/ / _ \ '__| |   | | | |
+                   | |_| |  __/ (__|   <  __/ |  | |___| |_| |
+                   |____/ \___|\___|_|\_\___|_|   \____|____/
+
+                    Project: Docker-CD
+                    Running containers: 3
+                    Repository: https://github.com/your-org/your-repo.git
+                    Revision: main
+                    Deploy dir: deployments/host-a
+        "500":
+          description: Startup validation error (service will exit before serving requests)
