@@ -24,6 +24,11 @@ type Config struct {
 	// Refresh settings
 	WebhookSecret       string
 	RefreshPollInterval time.Duration
+
+	// Reconcile settings
+	ReconcileEnabled       bool
+	ReconcileRemoveEnabled bool
+	DriftPolicy            string // "revert" or "flag"
 }
 
 // Load reads configuration from environment variables, falling back to defaults.
@@ -61,16 +66,41 @@ func Load() (Config, []string) {
 		}
 	}
 
+	reconcileEnabled := true
+	if v := os.Getenv("RECONCILE_ENABLED"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			reconcileEnabled = b
+		}
+	}
+
+	reconcileRemoveEnabled := false
+	if v := os.Getenv("RECONCILE_REMOVE_ENABLED"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			reconcileRemoveEnabled = b
+		}
+	}
+
+	driftPolicy := "revert"
+	if v := os.Getenv("DRIFT_POLICY"); v != "" {
+		v = strings.ToLower(v)
+		if v == "revert" || v == "flag" {
+			driftPolicy = v
+		}
+	}
+
 	cfg := Config{
-		Port:                port,
-		ProjectName:         projectName,
-		DockerSocket:        dockerSocket,
-		GitRepoURL:          gitRepoURL,
-		GitAccessToken:      gitAccessToken,
-		GitRevision:         gitRevision,
-		GitDeployDir:        gitDeployDir,
-		WebhookSecret:       webhookSecret,
-		RefreshPollInterval: refreshPollInterval,
+		Port:                   port,
+		ProjectName:            projectName,
+		DockerSocket:           dockerSocket,
+		GitRepoURL:             gitRepoURL,
+		GitAccessToken:         gitAccessToken,
+		GitRevision:            gitRevision,
+		GitDeployDir:           gitDeployDir,
+		WebhookSecret:          webhookSecret,
+		RefreshPollInterval:    refreshPollInterval,
+		ReconcileEnabled:       reconcileEnabled,
+		ReconcileRemoveEnabled: reconcileRemoveEnabled,
+		DriftPolicy:            driftPolicy,
 	}
 
 	var errs []string

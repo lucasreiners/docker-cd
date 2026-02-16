@@ -1,0 +1,79 @@
+openapi: 3.0.3
+info:
+  title: Docker-CD Stack Sync API
+  version: 1.1.0
+paths:
+  /api/stacks:
+    get:
+      summary: Get all stacks with sync status and metadata
+      responses:
+        "200":
+          description: Stack list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StackRecord"
+  /api/reconcile/ack:
+    post:
+      summary: Acknowledge drift for a stack path
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AckRequest"
+      responses:
+        "200":
+          description: Acknowledgement recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AckResponse"
+components:
+  schemas:
+    AckRequest:
+      type: object
+      properties:
+        path:
+          type: string
+      required: [path]
+    AckResponse:
+      type: object
+      properties:
+        acknowledged:
+          type: boolean
+      required: [acknowledged]
+    StackRecord:
+      type: object
+      properties:
+        path:
+          type: string
+        composeFile:
+          type: string
+          enum: [docker-compose.yml, docker-compose.yaml]
+        composeHash:
+          type: string
+        status:
+          type: string
+          enum: [missing, syncing, synced, deleting, failed]
+          description: Per-stack sync status
+        syncedRevision:
+          type: string
+        syncedCommitMessage:
+          type: string
+        syncedComposeHash:
+          type: string
+        syncedAt:
+          type: string
+          format: date-time
+        lastSyncAt:
+          type: string
+          format: date-time
+        lastSyncStatus:
+          type: string
+          enum: [syncing, synced, failed]
+        lastSyncError:
+          type: string
+      required: [path, composeFile, composeHash, status]

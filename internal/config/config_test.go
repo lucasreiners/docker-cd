@@ -231,3 +231,115 @@ func TestLoad_RefreshPollIntervalInvalid(t *testing.T) {
 		t.Errorf("expected zero poll interval for invalid value, got %v", cfg.RefreshPollInterval)
 	}
 }
+
+func TestLoad_ReconcileEnabledDefault(t *testing.T) {
+	t.Setenv("GIT_REPO_URL", "https://github.com/example/repo.git")
+	t.Setenv("GIT_ACCESS_TOKEN", "tok")
+	t.Setenv("GIT_REVISION", "main")
+	os.Unsetenv("RECONCILE_ENABLED")
+
+	cfg, errs := config.Load()
+
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors, got %v", errs)
+	}
+	if !cfg.ReconcileEnabled {
+		t.Error("expected ReconcileEnabled true by default")
+	}
+}
+
+func TestLoad_ReconcileEnabledFalse(t *testing.T) {
+	t.Setenv("GIT_REPO_URL", "https://github.com/example/repo.git")
+	t.Setenv("GIT_ACCESS_TOKEN", "tok")
+	t.Setenv("GIT_REVISION", "main")
+	t.Setenv("RECONCILE_ENABLED", "false")
+
+	cfg, errs := config.Load()
+
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors, got %v", errs)
+	}
+	if cfg.ReconcileEnabled {
+		t.Error("expected ReconcileEnabled false")
+	}
+}
+
+func TestLoad_ReconcileRemoveEnabledDefault(t *testing.T) {
+	t.Setenv("GIT_REPO_URL", "https://github.com/example/repo.git")
+	t.Setenv("GIT_ACCESS_TOKEN", "tok")
+	t.Setenv("GIT_REVISION", "main")
+	os.Unsetenv("RECONCILE_REMOVE_ENABLED")
+
+	cfg, errs := config.Load()
+
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors, got %v", errs)
+	}
+	if cfg.ReconcileRemoveEnabled {
+		t.Error("expected ReconcileRemoveEnabled false by default")
+	}
+}
+
+func TestLoad_ReconcileRemoveEnabledTrue(t *testing.T) {
+	t.Setenv("GIT_REPO_URL", "https://github.com/example/repo.git")
+	t.Setenv("GIT_ACCESS_TOKEN", "tok")
+	t.Setenv("GIT_REVISION", "main")
+	t.Setenv("RECONCILE_REMOVE_ENABLED", "true")
+
+	cfg, errs := config.Load()
+
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors, got %v", errs)
+	}
+	if !cfg.ReconcileRemoveEnabled {
+		t.Error("expected ReconcileRemoveEnabled true")
+	}
+}
+
+func TestLoad_DriftPolicyDefault(t *testing.T) {
+	t.Setenv("GIT_REPO_URL", "https://github.com/example/repo.git")
+	t.Setenv("GIT_ACCESS_TOKEN", "tok")
+	t.Setenv("GIT_REVISION", "main")
+	os.Unsetenv("DRIFT_POLICY")
+
+	cfg, errs := config.Load()
+
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors, got %v", errs)
+	}
+	if cfg.DriftPolicy != "revert" {
+		t.Errorf("expected drift policy revert by default, got %q", cfg.DriftPolicy)
+	}
+}
+
+func TestLoad_DriftPolicyFlag(t *testing.T) {
+	t.Setenv("GIT_REPO_URL", "https://github.com/example/repo.git")
+	t.Setenv("GIT_ACCESS_TOKEN", "tok")
+	t.Setenv("GIT_REVISION", "main")
+	t.Setenv("DRIFT_POLICY", "flag")
+
+	cfg, errs := config.Load()
+
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors, got %v", errs)
+	}
+	if cfg.DriftPolicy != "flag" {
+		t.Errorf("expected drift policy flag, got %q", cfg.DriftPolicy)
+	}
+}
+
+func TestLoad_DriftPolicyInvalid(t *testing.T) {
+	t.Setenv("GIT_REPO_URL", "https://github.com/example/repo.git")
+	t.Setenv("GIT_ACCESS_TOKEN", "tok")
+	t.Setenv("GIT_REVISION", "main")
+	t.Setenv("DRIFT_POLICY", "invalid")
+
+	cfg, errs := config.Load()
+
+	if len(errs) != 0 {
+		t.Fatalf("expected no errors, got %v", errs)
+	}
+	if cfg.DriftPolicy != "revert" {
+		t.Errorf("expected drift policy revert for invalid value, got %q", cfg.DriftPolicy)
+	}
+}

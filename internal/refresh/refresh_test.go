@@ -12,15 +12,16 @@ import (
 )
 
 type mockComposeReader struct {
-	entries []git.ComposeEntry
-	commit  string
-	err     error
-	calls   int
+	entries       []git.ComposeEntry
+	commit        string
+	commitMessage string
+	err           error
+	calls         int
 }
 
-func (m *mockComposeReader) ReadComposeFiles(_ context.Context, _, _, _, _ string) ([]git.ComposeEntry, string, error) {
+func (m *mockComposeReader) ReadComposeFiles(_ context.Context, _, _, _, _ string) ([]git.ComposeEntry, string, string, error) {
 	m.calls++
-	return m.entries, m.commit, m.err
+	return m.entries, m.commit, m.commitMessage, m.err
 }
 
 func TestService_StartupRefresh(t *testing.T) {

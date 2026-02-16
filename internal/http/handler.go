@@ -14,6 +14,7 @@ import (
 	"github.com/lucasreiners/docker-cd/internal/config"
 	"github.com/lucasreiners/docker-cd/internal/desiredstate"
 	"github.com/lucasreiners/docker-cd/internal/docker"
+	"github.com/lucasreiners/docker-cd/internal/reconcile"
 	"github.com/lucasreiners/docker-cd/internal/refresh"
 	"github.com/lucasreiners/docker-cd/internal/render"
 )
@@ -126,5 +127,42 @@ func StacksHandler(store *desiredstate.Store) gin.HandlerFunc {
 			stacks = []desiredstate.StackRecord{}
 		}
 		c.JSON(http.StatusOK, stacks)
+	}
+}
+
+// ackRequest is the JSON body for POST /api/reconcile/ack.
+type ackRequest struct {
+	StackPath string `json:"stack_path" binding:"required"`
+}
+
+// AckHandler handles POST /api/reconcile/ack to acknowledge drift for a stack
+// and trigger immediate reconciliation.
+func AckHandler(ackStore *reconcile.AckStore, reconciler ReconcileRunner) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req ackRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "stack_path is required"})
+			return
+		}
+
+		ackStore.Acknowledge(req.StackPath)
+		log.Printf("[info] acknowledged drift for stack %s", req.StackPath)
+
+		// Trigger immediate reconciliation
+		runs := reconciler.Reconcile(c.Request.Context())
+
+		result := "acknowledged"
+		for _, run := range runs {
+			if run.StackPath == req.StackPath {
+				result = run.Result
+				break
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":     result,
+			"stack_path": req.StackPath,
+			"message":    "drift acknowledged for " + req.StackPath,
+		})
 	}
 }

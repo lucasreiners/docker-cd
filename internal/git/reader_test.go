@@ -8,13 +8,14 @@ import (
 )
 
 type stubComposeReader struct {
-	entries []git.ComposeEntry
-	commit  string
-	err     error
+	entries       []git.ComposeEntry
+	commit        string
+	commitMessage string
+	err           error
 }
 
-func (s *stubComposeReader) ReadComposeFiles(_ context.Context, _, _, _, _ string) ([]git.ComposeEntry, string, error) {
-	return s.entries, s.commit, s.err
+func (s *stubComposeReader) ReadComposeFiles(_ context.Context, _, _, _, _ string) ([]git.ComposeEntry, string, string, error) {
+	return s.entries, s.commit, s.commitMessage, s.err
 }
 
 func TestStubComposeReader_ReturnsEntries(t *testing.T) {
@@ -25,7 +26,7 @@ func TestStubComposeReader_ReturnsEntries(t *testing.T) {
 		},
 		commit: "abc123def456",
 	}
-	entries, commit, err := reader.ReadComposeFiles(context.Background(), "", "", "", "")
+	entries, commit, _, err := reader.ReadComposeFiles(context.Background(), "", "", "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -42,7 +43,7 @@ func TestStubComposeReader_ReturnsEntries(t *testing.T) {
 
 func TestStubComposeReader_ReturnsError(t *testing.T) {
 	reader := &stubComposeReader{err: context.DeadlineExceeded}
-	_, _, err := reader.ReadComposeFiles(context.Background(), "", "", "", "")
+	_, _, _, err := reader.ReadComposeFiles(context.Background(), "", "", "", "")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -50,7 +51,7 @@ func TestStubComposeReader_ReturnsError(t *testing.T) {
 
 func TestStubComposeReader_EmptyRepo(t *testing.T) {
 	reader := &stubComposeReader{entries: nil, commit: "abc123"}
-	entries, commit, err := reader.ReadComposeFiles(context.Background(), "", "", "", "")
+	entries, commit, _, err := reader.ReadComposeFiles(context.Background(), "", "", "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/lucasreiners/docker-cd/internal/config"
 	"github.com/lucasreiners/docker-cd/internal/desiredstate"
 	handler "github.com/lucasreiners/docker-cd/internal/http"
+	"github.com/lucasreiners/docker-cd/internal/reconcile"
 	"github.com/lucasreiners/docker-cd/internal/refresh"
 )
 
@@ -29,7 +30,7 @@ func (s *stubRunner) Run(_ context.Context, _ string, _ ...string) ([]byte, erro
 
 func setupRouter(runner handler.CommandRunner, cfg config.Config) *gin.Engine {
 	gin.SetMode(gin.TestMode)
-	return handler.NewRouter(runner, cfg, nil, nil)
+	return handler.NewRouter(runner, cfg, nil, nil, nil, nil)
 }
 
 func TestRootHandler_Success(t *testing.T) {
@@ -145,7 +146,7 @@ func setupRouterWithRefresh(runner handler.CommandRunner, cfg config.Config) *gi
 	store := desiredstate.NewStore()
 	queue := refresh.NewQueue()
 	svc := refresh.NewService(cfg, store, queue, nil)
-	return handler.NewRouter(runner, cfg, svc, store)
+	return handler.NewRouter(runner, cfg, svc, store, nil, nil)
 }
 
 func TestWebhookHandler_NoSecretConfigured(t *testing.T) {
@@ -277,7 +278,7 @@ func TestRefreshStatusHandler_ReturnsJSON(t *testing.T) {
 	svc := refresh.NewService(cfg, store, queue, nil)
 
 	gin.SetMode(gin.TestMode)
-	router := handler.NewRouter(runner, cfg, svc, store)
+	router := handler.NewRouter(runner, cfg, svc, store, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/refresh-status", nil)
 	w := httptest.NewRecorder()
@@ -310,7 +311,7 @@ func TestRefreshStatusHandler_WithPopulatedStore(t *testing.T) {
 	svc := refresh.NewService(cfg, store, queue, nil)
 
 	gin.SetMode(gin.TestMode)
-	router := handler.NewRouter(runner, cfg, svc, store)
+	router := handler.NewRouter(runner, cfg, svc, store, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/refresh-status", nil)
 	w := httptest.NewRecorder()
@@ -340,7 +341,7 @@ func TestStacksHandler_EmptyStore(t *testing.T) {
 	svc := refresh.NewService(cfg, store, queue, nil)
 
 	gin.SetMode(gin.TestMode)
-	router := handler.NewRouter(runner, cfg, svc, store)
+	router := handler.NewRouter(runner, cfg, svc, store, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/stacks", nil)
 	w := httptest.NewRecorder()
@@ -372,7 +373,7 @@ func TestStacksHandler_WithStacks(t *testing.T) {
 	svc := refresh.NewService(cfg, store, queue, nil)
 
 	gin.SetMode(gin.TestMode)
-	router := handler.NewRouter(runner, cfg, svc, store)
+	router := handler.NewRouter(runner, cfg, svc, store, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/stacks", nil)
 	w := httptest.NewRecorder()
@@ -390,5 +391,177 @@ func TestStacksHandler_WithStacks(t *testing.T) {
 	}
 	if !strings.Contains(body, `"synced"`) {
 		t.Errorf("response should contain synced status, got: %s", body)
+	}
+}
+
+// --- T018/T019: Sync metadata in API tests ---
+
+func TestStacksHandler_ExposeSyncMetadata(t *testing.T) {
+	runner := &stubRunner{output: []byte("a\n")}
+	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
+
+	store := desiredstate.NewStore()
+	store.Set(&desiredstate.Snapshot{
+		Revision:      "abc123",
+		RefreshStatus: desiredstate.RefreshStatusCompleted,
+		Stacks: []desiredstate.StackRecord{
+			{
+				Path:                "app1",
+				ComposeFile:         "docker-compose.yml",
+				ComposeHash:         "hash1",
+				Status:              desiredstate.StackSyncSynced,
+				SyncedRevision:      "abc123",
+				SyncedCommitMessage: "deploy v1",
+				SyncedComposeHash:   "hash1",
+				SyncedAt:            "2024-01-01T00:00:00Z",
+				LastSyncAt:          "2024-01-01T00:00:00Z",
+				LastSyncStatus:      "synced",
+			},
+		},
+	})
+	queue := refresh.NewQueue()
+	svc := refresh.NewService(cfg, store, queue, nil)
+
+	gin.SetMode(gin.TestMode)
+	router := handler.NewRouter(runner, cfg, svc, store, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/stacks", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+
+	// Verify sync metadata fields are present in response
+	mustContain := []string{
+		`"syncedRevision":"abc123"`,
+		`"syncedCommitMessage":"deploy v1"`,
+		`"syncedComposeHash":"hash1"`,
+		`"syncedAt":"2024-01-01T00:00:00Z"`,
+		`"lastSyncAt":"2024-01-01T00:00:00Z"`,
+		`"lastSyncStatus":"synced"`,
+	}
+	for _, expected := range mustContain {
+		if !strings.Contains(body, expected) {
+			t.Errorf("response should contain %s, got: %s", expected, body)
+		}
+	}
+
+	// Content field should NOT appear in JSON
+	if strings.Contains(body, `"content"`) {
+		t.Errorf("response should NOT expose content field, got: %s", body)
+	}
+}
+
+func TestStacksHandler_SyncErrorExposed(t *testing.T) {
+	runner := &stubRunner{output: []byte("a\n")}
+	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
+
+	store := desiredstate.NewStore()
+	store.Set(&desiredstate.Snapshot{
+		Revision:      "abc123",
+		RefreshStatus: desiredstate.RefreshStatusCompleted,
+		Stacks: []desiredstate.StackRecord{
+			{
+				Path:           "app1",
+				ComposeFile:    "docker-compose.yml",
+				ComposeHash:    "hash1",
+				Status:         desiredstate.StackSyncFailed,
+				LastSyncAt:     "2024-01-01T00:00:00Z",
+				LastSyncStatus: "failed",
+				LastSyncError:  "compose up failed: image not found",
+			},
+		},
+	})
+	queue := refresh.NewQueue()
+	svc := refresh.NewService(cfg, store, queue, nil)
+
+	gin.SetMode(gin.TestMode)
+	router := handler.NewRouter(runner, cfg, svc, store, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/stacks", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+
+	if !strings.Contains(body, `"lastSyncError":"compose up failed: image not found"`) {
+		t.Errorf("response should contain error, got: %s", body)
+	}
+	if !strings.Contains(body, `"failed"`) {
+		t.Errorf("response should contain failed status, got: %s", body)
+	}
+}
+
+// --- T036: Ack handler tests ---
+
+type stubReconciler struct {
+	runs []reconcile.ReconciliationRun
+}
+
+func (s *stubReconciler) Reconcile(_ context.Context) []reconcile.ReconciliationRun {
+	return s.runs
+}
+
+func TestAckHandler_Success(t *testing.T) {
+	runner := &stubRunner{output: []byte("a\n")}
+	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
+
+	store := desiredstate.NewStore()
+	queue := refresh.NewQueue()
+	svc := refresh.NewService(cfg, store, queue, nil)
+
+	ackStore := reconcile.NewAckStore()
+	rec := &stubReconciler{runs: []reconcile.ReconciliationRun{
+		{StackPath: "app1", Result: "success"},
+	}}
+
+	gin.SetMode(gin.TestMode)
+	router := handler.NewRouter(runner, cfg, svc, store, ackStore, rec)
+
+	body := `{"stack_path": "app1"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/reconcile/ack", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+	resp := w.Body.String()
+	if !strings.Contains(resp, `"success"`) {
+		t.Errorf("response should contain success, got: %s", resp)
+	}
+	if !strings.Contains(resp, `"app1"`) {
+		t.Errorf("response should contain stack path, got: %s", resp)
+	}
+}
+
+func TestAckHandler_MissingStackPath(t *testing.T) {
+	runner := &stubRunner{output: []byte("a\n")}
+	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
+
+	store := desiredstate.NewStore()
+	queue := refresh.NewQueue()
+	svc := refresh.NewService(cfg, store, queue, nil)
+
+	ackStore := reconcile.NewAckStore()
+	rec := &stubReconciler{}
+
+	gin.SetMode(gin.TestMode)
+	router := handler.NewRouter(runner, cfg, svc, store, ackStore, rec)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/reconcile/ack", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400, got %d", w.Code)
 	}
 }

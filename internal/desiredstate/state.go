@@ -23,6 +23,7 @@ const (
 	StackSyncSyncing  StackSyncStatus = "syncing"
 	StackSyncSynced   StackSyncStatus = "synced"
 	StackSyncDeleting StackSyncStatus = "deleting"
+	StackSyncFailed   StackSyncStatus = "failed"
 )
 
 // StackRecord represents a stack discovered in the repository.
@@ -31,11 +32,22 @@ type StackRecord struct {
 	ComposeFile string          `json:"composeFile"`
 	ComposeHash string          `json:"composeHash"`
 	Status      StackSyncStatus `json:"status"`
+	Content     []byte          `json:"-"` // raw compose file content, not exposed via API
+
+	// Sync metadata (populated after reconciliation)
+	SyncedRevision      string `json:"syncedRevision,omitempty"`
+	SyncedCommitMessage string `json:"syncedCommitMessage,omitempty"`
+	SyncedComposeHash   string `json:"syncedComposeHash,omitempty"`
+	SyncedAt            string `json:"syncedAt,omitempty"`
+	LastSyncAt          string `json:"lastSyncAt,omitempty"`
+	LastSyncStatus      string `json:"lastSyncStatus,omitempty"`
+	LastSyncError       string `json:"lastSyncError,omitempty"`
 }
 
 // Snapshot represents the latest desired state loaded from Git.
 type Snapshot struct {
 	Revision      string        `json:"revision"`
+	CommitMessage string        `json:"commitMessage,omitempty"`
 	Ref           string        `json:"ref"`
 	RefType       string        `json:"refType"`
 	RefreshedAt   time.Time     `json:"refreshedAt"`
@@ -64,7 +76,13 @@ func (s *Store) Get() *Snapshot {
 	}
 	cp := *s.snapshot
 	cp.Stacks = make([]StackRecord, len(s.snapshot.Stacks))
-	copy(cp.Stacks, s.snapshot.Stacks)
+	for i, st := range s.snapshot.Stacks {
+		cp.Stacks[i] = st
+		if st.Content != nil {
+			cp.Stacks[i].Content = make([]byte, len(st.Content))
+			copy(cp.Stacks[i].Content, st.Content)
+		}
+	}
 	return &cp
 }
 
@@ -94,7 +112,13 @@ func (s *Store) GetStacks() []StackRecord {
 		return nil
 	}
 	stacks := make([]StackRecord, len(s.snapshot.Stacks))
-	copy(stacks, s.snapshot.Stacks)
+	for i, st := range s.snapshot.Stacks {
+		stacks[i] = st
+		if st.Content != nil {
+			stacks[i].Content = make([]byte, len(st.Content))
+			copy(stacks[i].Content, st.Content)
+		}
+	}
 	return stacks
 }
 
@@ -107,6 +131,7 @@ func (s *Store) GetRefreshStatus() *Snapshot {
 	}
 	return &Snapshot{
 		Revision:      s.snapshot.Revision,
+		CommitMessage: s.snapshot.CommitMessage,
 		Ref:           s.snapshot.Ref,
 		RefType:       s.snapshot.RefType,
 		RefreshedAt:   s.snapshot.RefreshedAt,

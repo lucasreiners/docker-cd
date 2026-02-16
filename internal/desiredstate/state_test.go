@@ -136,7 +136,62 @@ func TestStore_GetRefreshStatus_ExcludesStacks(t *testing.T) {
 	}
 }
 
-func TestComposeHash(t *testing.T) {
+func TestStore_GetStacks_ReturnsCopyWithSyncMetadata(t *testing.T) {
+	store := desiredstate.NewStore()
+	store.Set(&desiredstate.Snapshot{
+		Stacks: []desiredstate.StackRecord{
+			{
+				Path:                "app1",
+				ComposeFile:         "docker-compose.yml",
+				ComposeHash:         "h1",
+				Status:              desiredstate.StackSyncSynced,
+				SyncedRevision:      "abc123",
+				SyncedCommitMessage: "initial deploy",
+				SyncedComposeHash:   "h1",
+				SyncedAt:            "2026-02-16T10:00:00Z",
+				LastSyncAt:          "2026-02-16T10:00:00Z",
+				LastSyncStatus:      "synced",
+			},
+		},
+	})
+	stacks := store.GetStacks()
+	if stacks[0].SyncedRevision != "abc123" {
+		t.Errorf("expected SyncedRevision abc123, got %q", stacks[0].SyncedRevision)
+	}
+	if stacks[0].SyncedCommitMessage != "initial deploy" {
+		t.Errorf("expected SyncedCommitMessage, got %q", stacks[0].SyncedCommitMessage)
+	}
+	stacks[0].SyncedRevision = "modified"
+	original := store.GetStacks()
+	if original[0].SyncedRevision != "abc123" {
+		t.Errorf("modifying copy should not affect store, got %q", original[0].SyncedRevision)
+	}
+}
+
+func TestStackSyncFailed_Status(t *testing.T) {
+	store := desiredstate.NewStore()
+	store.Set(&desiredstate.Snapshot{
+		Stacks: []desiredstate.StackRecord{
+			{
+				Path:           "app1",
+				ComposeFile:    "docker-compose.yml",
+				ComposeHash:    "h1",
+				Status:         desiredstate.StackSyncFailed,
+				LastSyncError:  "compose up failed",
+				LastSyncStatus: "failed",
+			},
+		},
+	})
+	stacks := store.GetStacks()
+	if stacks[0].Status != desiredstate.StackSyncFailed {
+		t.Errorf("expected failed status, got %q", stacks[0].Status)
+	}
+	if stacks[0].LastSyncError != "compose up failed" {
+		t.Errorf("expected error message, got %q", stacks[0].LastSyncError)
+	}
+}
+
+func TestComposeHash_Deterministic(t *testing.T) {
 	content := []byte("version: '3'\nservices:\n  web:\n    image: nginx\n")
 	hash1 := desiredstate.ComposeHash(content)
 	hash2 := desiredstate.ComposeHash(content)

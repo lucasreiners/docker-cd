@@ -10,12 +10,16 @@ import (
 	"github.com/lucasreiners/docker-cd/internal/git"
 )
 
+// ReconcileFunc is a callback invoked after each successful refresh to trigger reconciliation.
+type ReconcileFunc func(ctx context.Context)
+
 // Service orchestrates desired-state refreshes from Git.
 type Service struct {
-	cfg    config.Config
-	store  *desiredstate.Store
-	queue  *Queue
-	reader git.ComposeReader
+	cfg        config.Config
+	store      *desiredstate.Store
+	queue      *Queue
+	reader     git.ComposeReader
+	reconcileF ReconcileFunc
 }
 
 // NewService creates a refresh service.
@@ -26,6 +30,11 @@ func NewService(cfg config.Config, store *desiredstate.Store, queue *Queue, read
 		queue:  queue,
 		reader: reader,
 	}
+}
+
+// SetReconcileFunc sets the optional callback that runs after each successful refresh.
+func (s *Service) SetReconcileFunc(f ReconcileFunc) {
+	s.reconcileF = f
 }
 
 // Start begins the refresh loop: listens for triggers from the queue and
@@ -85,7 +94,7 @@ func (s *Service) doRefresh(ctx context.Context, trigger Trigger) {
 
 	s.store.UpdateStatus(desiredstate.RefreshStatusRefreshing, "")
 
-	entries, commitHash, err := s.reader.ReadComposeFiles(
+	entries, commitHash, commitMessage, err := s.reader.ReadComposeFiles(
 		ctx,
 		s.cfg.GitRepoURL,
 		s.cfg.GitAccessToken,
@@ -104,6 +113,7 @@ func (s *Service) doRefresh(ctx context.Context, trigger Trigger) {
 
 	snap := &desiredstate.Snapshot{
 		Revision:      commitHash,
+		CommitMessage: commitMessage,
 		Ref:           s.cfg.GitRevision,
 		RefType:       "branch",
 		RefreshedAt:   time.Now(),
@@ -114,6 +124,12 @@ func (s *Service) doRefresh(ctx context.Context, trigger Trigger) {
 
 	s.store.Set(snap)
 	log.Printf("[info] refresh completed: %d stacks at %s", len(newStacks), truncate(commitHash, 12))
+
+	// Trigger reconciliation after successful refresh (FR-001, FR-002)
+	if s.reconcileF != nil {
+		log.Printf("[info] triggering reconciliation after refresh")
+		s.reconcileF(ctx)
+	}
 
 	s.queue.Done()
 }
@@ -132,16 +148,31 @@ func (s *Service) buildStacksPreservingStatus(entries []git.ComposeEntry) []desi
 		hash := desiredstate.ComposeHash(e.Content)
 
 		status := desiredstate.StackSyncMissing
+		rec := desiredstate.StackRecord{}
 		if prev, ok := existing[e.StackPath]; ok && prev.ComposeHash == hash {
 			status = prev.Status
+			log.Printf("[debug] buildStacksPreservingStatus: stack=%s status=%s (preserved, hash match)", e.StackPath, status)
+			// Preserve sync metadata from previous state
+			rec.SyncedRevision = prev.SyncedRevision
+			rec.SyncedCommitMessage = prev.SyncedCommitMessage
+			rec.SyncedComposeHash = prev.SyncedComposeHash
+			rec.SyncedAt = prev.SyncedAt
+			rec.LastSyncAt = prev.LastSyncAt
+			rec.LastSyncStatus = prev.LastSyncStatus
+			rec.LastSyncError = prev.LastSyncError
+		} else if prev, ok := existing[e.StackPath]; ok {
+			log.Printf("[debug] buildStacksPreservingStatus: stack=%s status=missing (hash changed: prev=%s new=%s)", e.StackPath, truncate(prev.ComposeHash, 12), truncate(hash, 12))
+		} else {
+			log.Printf("[debug] buildStacksPreservingStatus: stack=%s status=missing (new stack)", e.StackPath)
 		}
 
-		newStacks = append(newStacks, desiredstate.StackRecord{
-			Path:        e.StackPath,
-			ComposeFile: e.ComposeFile,
-			ComposeHash: hash,
-			Status:      status,
-		})
+		rec.Path = e.StackPath
+		rec.ComposeFile = e.ComposeFile
+		rec.ComposeHash = hash
+		rec.Status = status
+		rec.Content = e.Content
+
+		newStacks = append(newStacks, rec)
 	}
 
 	return newStacks

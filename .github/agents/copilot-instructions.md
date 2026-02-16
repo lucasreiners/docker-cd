@@ -7,6 +7,8 @@ Auto-generated from all feature plans. Last updated: 2026-02-15
 - Go 1.25.x + Gin v1.11.0, go-git v5 (read-only validation) (002-git-repo-config)
 - Go 1.25.7 + Gin v1.11.0, go-git v5.16.5 (003-desired-state-cache)
 - In-memory cache (no persistence) (003-desired-state-cache)
+- Go 1.25.7 + gin (HTTP), go-git (Git access) (004-stack-sync)
+- Docker container labels for sync metadata; in-memory desired-state store (004-stack-sync)
 
 - Go 1.22 + Go standard library (`net/http`, `os/exec`) (001-skeleton-runtime)
 
@@ -26,9 +28,9 @@ tests/
 Go 1.22: Follow standard conventions
 
 ## Recent Changes
+- 004-stack-sync: Added Go 1.25.7 + gin (HTTP), go-git (Git access)
 - 003-desired-state-cache: Added Go 1.25.7 + Gin v1.11.0, go-git v5.16.5
 - 002-git-repo-config: Added Go 1.25.x + Gin v1.11.0, go-git v5 (read-only validation)
-- 001-skeleton-runtime: Added Go 1.22 + Gin (`github.com/gin-gonic/gin`), Go standard
 
 
 <!-- MANUAL ADDITIONS START -->

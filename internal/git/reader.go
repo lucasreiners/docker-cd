@@ -26,7 +26,8 @@ type ComposeEntry struct {
 type ComposeReader interface {
 	// ReadComposeFiles clones the repo (shallow, in-memory) and returns all compose entries
 	// found under the given deploy directory.
-	ReadComposeFiles(ctx context.Context, repoURL, token, revision, deployDir string) ([]ComposeEntry, string, error)
+	// Returns entries, commit hash, commit message, and error.
+	ReadComposeFiles(ctx context.Context, repoURL, token, revision, deployDir string) ([]ComposeEntry, string, string, error)
 }
 
 // GoGitComposeReader implements ComposeReader using go-git.
@@ -34,8 +35,8 @@ type GoGitComposeReader struct{}
 
 // ReadComposeFiles performs a shallow clone and scans for docker-compose.yml/yaml files
 // in immediate subdirectories of the deploy directory.
-// Returns the list of compose entries and the resolved commit hash.
-func (g *GoGitComposeReader) ReadComposeFiles(ctx context.Context, repoURL, token, revision, deployDir string) ([]ComposeEntry, string, error) {
+// Returns the list of compose entries, resolved commit hash, commit message, and error.
+func (g *GoGitComposeReader) ReadComposeFiles(ctx context.Context, repoURL, token, revision, deployDir string) ([]ComposeEntry, string, string, error) {
 	repo, err := gogit.CloneContext(ctx, memory.NewStorage(), nil, &gogit.CloneOptions{
 		URL: repoURL,
 		Auth: &http.BasicAuth{
@@ -47,24 +48,26 @@ func (g *GoGitComposeReader) ReadComposeFiles(ctx context.Context, repoURL, toke
 		Depth:         1,
 	})
 	if err != nil {
-		return nil, "", fmt.Errorf("shallow clone failed: %w", err)
+		return nil, "", "", fmt.Errorf("shallow clone failed: %w", err)
 	}
 
 	ref, err := repo.Head()
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to get HEAD: %w", err)
+		return nil, "", "", fmt.Errorf("failed to get HEAD: %w", err)
 	}
 
 	commitHash := ref.Hash().String()
 
 	commit, err := repo.CommitObject(ref.Hash())
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to get commit: %w", err)
+		return nil, "", "", fmt.Errorf("failed to get commit: %w", err)
 	}
+
+	commitMessage := strings.TrimSpace(commit.Message)
 
 	rootTree, err := commit.Tree()
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to get tree: %w", err)
+		return nil, "", "", fmt.Errorf("failed to get tree: %w", err)
 	}
 
 	// Navigate to deploy directory if specified
@@ -73,7 +76,7 @@ func (g *GoGitComposeReader) ReadComposeFiles(ctx context.Context, repoURL, toke
 		deployDir = strings.Trim(deployDir, "/")
 		tree, err = rootTree.Tree(deployDir)
 		if err != nil {
-			return nil, "", fmt.Errorf("deploy dir %q not found: %w", deployDir, err)
+			return nil, "", "", fmt.Errorf("deploy dir %q not found: %w", deployDir, err)
 		}
 	}
 
@@ -102,7 +105,7 @@ func (g *GoGitComposeReader) ReadComposeFiles(ctx context.Context, repoURL, toke
 		})
 	}
 
-	return entries, commitHash, nil
+	return entries, commitHash, commitMessage, nil
 }
 
 // findComposeFile looks for docker-compose.yml or docker-compose.yaml in a tree.

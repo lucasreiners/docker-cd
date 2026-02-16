@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"encoding/json"
+
 	"github.com/lucasreiners/docker-cd/internal/config"
 	"github.com/lucasreiners/docker-cd/internal/desiredstate"
 	"github.com/lucasreiners/docker-cd/internal/docker"
@@ -39,7 +41,7 @@ func TestSmokeRootEndpoint(t *testing.T) {
 		DockerSocket: socketPath,
 	}
 
-	router := handler.NewRouter(runner, cfg, nil, nil)
+	router := handler.NewRouter(runner, cfg, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()
@@ -86,7 +88,7 @@ func TestSmokeAPIEndpoints(t *testing.T) {
 	queue := refresh.NewQueue()
 	svc := refresh.NewService(cfg, store, queue, nil)
 
-	router := handler.NewRouter(runner, cfg, svc, store)
+	router := handler.NewRouter(runner, cfg, svc, store, nil, nil)
 
 	t.Run("POST /api/refresh returns 200", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/refresh", nil)
@@ -138,4 +140,61 @@ func TestSmokeAPIEndpoints(t *testing.T) {
 			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 		}
 	})
+
+	t.Run("GET /api/stacks includes sync metadata fields", func(t *testing.T) {
+		// Seed a stack with sync metadata
+		store.Set(&desiredstate.Snapshot{
+			Revision:      "abc123",
+			RefreshStatus: desiredstate.RefreshStatusCompleted,
+			Stacks: []desiredstate.StackRecord{
+				{
+					Path:                "app1",
+					ComposeFile:         "docker-compose.yml",
+					ComposeHash:         "hash1",
+					Status:              desiredstate.StackSyncSynced,
+					SyncedRevision:      "abc123",
+					SyncedComposeHash:   "hash1",
+					SyncedCommitMessage: "deploy v1",
+					LastSyncAt:          "2024-01-01T00:00:00Z",
+				},
+			},
+		})
+
+		req := httptest.NewRequest(http.MethodGet, "/api/stacks", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+
+		var stacks []map[string]interface{}
+		if err := json.Unmarshal(w.Body.Bytes(), &stacks); err != nil {
+			t.Fatalf("failed to parse JSON: %v", err)
+		}
+		if len(stacks) == 0 {
+			t.Fatal("expected at least 1 stack")
+		}
+
+		stack := stacks[0]
+		requiredFields := []string{"syncedRevision", "syncedComposeHash", "syncedCommitMessage", "lastSyncAt", "status"}
+		for _, field := range requiredFields {
+			if _, ok := stack[field]; !ok {
+				t.Errorf("expected field %q in stacks response, got keys: %v", field, keysOf(stack))
+			}
+		}
+
+		// Content should NOT be exposed
+		if _, ok := stack["content"]; ok {
+			t.Error("content field should not be in API response")
+		}
+	})
+}
+
+func keysOf(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
