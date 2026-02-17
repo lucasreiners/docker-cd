@@ -1,0 +1,122 @@
+openapi: 3.0.3
+info:
+  title: Docker-CD Web Frontend API
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+paths:
+  /api/stacks:
+    get:
+      summary: List stacks
+      responses:
+        "200":
+          description: List of stack records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StackRecord"
+  /api/refresh-status:
+    get:
+      summary: Get refresh status snapshot
+      responses:
+        "200":
+          description: Refresh status snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RefreshSnapshot"
+  /api/events:
+    get:
+      summary: Stream stack updates via SSE
+      description: |
+        SSE stream of stack snapshot and upsert events. Each event uses
+        text/event-stream with JSON payloads.
+      responses:
+        "200":
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              examples:
+                snapshot:
+                  value: |
+                    event: stack.snapshot
+                    id: 42
+                    data: {"records":[{"path":"apps/api","composeFile":"docker-compose.yml","composeHash":"abc123","status":"synced"}]}
+                upsert:
+                  value: |
+                    event: stack.upsert
+                    id: 43
+                    data: {"record":{"path":"apps/api","composeFile":"docker-compose.yml","composeHash":"abc124","status":"syncing"}}
+components:
+  schemas:
+    StackRecord:
+      type: object
+      required:
+        - path
+        - composeFile
+        - composeHash
+        - status
+      properties:
+        path:
+          type: string
+        composeFile:
+          type: string
+        composeHash:
+          type: string
+        status:
+          type: string
+          enum:
+            - missing
+            - syncing
+            - synced
+            - deleting
+            - failed
+        syncedRevision:
+          type: string
+        syncedCommitMessage:
+          type: string
+        syncedComposeHash:
+          type: string
+        syncedAt:
+          type: string
+          format: date-time
+        lastSyncAt:
+          type: string
+          format: date-time
+        lastSyncStatus:
+          type: string
+        lastSyncError:
+          type: string
+    RefreshSnapshot:
+      type: object
+      required:
+        - revision
+        - ref
+        - refType
+        - refreshedAt
+        - refreshStatus
+      properties:
+        revision:
+          type: string
+        commitMessage:
+          type: string
+        ref:
+          type: string
+        refType:
+          type: string
+        refreshedAt:
+          type: string
+          format: date-time
+        refreshStatus:
+          type: string
+          enum:
+            - refreshing
+            - queued
+            - completed
+            - failed
+        refreshError:
+          type: string

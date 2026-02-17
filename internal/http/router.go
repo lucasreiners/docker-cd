@@ -16,7 +16,7 @@ type ReconcileRunner interface {
 }
 
 // NewRouter creates a Gin engine with all routes registered.
-func NewRouter(runner CommandRunner, cfg config.Config, refreshSvc *refresh.Service, store *desiredstate.Store, ackStore *reconcile.AckStore, reconciler ReconcileRunner) *gin.Engine {
+func NewRouter(runner CommandRunner, cfg config.Config, refreshSvc *refresh.Service, store *desiredstate.Store, ackStore *reconcile.AckStore, reconciler ReconcileRunner, broadcaster ...*desiredstate.Broadcaster) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
 
@@ -33,6 +33,13 @@ func NewRouter(runner CommandRunner, cfg config.Config, refreshSvc *refresh.Serv
 	}
 	if ackStore != nil && reconciler != nil {
 		r.POST("/api/reconcile/ack", AckHandler(ackStore, reconciler))
+	}
+	// Container listing for individual stacks
+	if lister, ok := reconciler.(ContainerLister); ok {
+		r.GET("/api/stacks/containers/*path", ContainersHandler(lister))
+	}
+	if len(broadcaster) > 0 && broadcaster[0] != nil && store != nil {
+		r.GET("/api/events", EventsHandler(broadcaster[0], store))
 	}
 
 	return r

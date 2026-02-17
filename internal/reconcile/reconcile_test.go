@@ -45,6 +45,10 @@ func (s *stubComposeRunner) ComposeDown(_ context.Context, projectName, composeF
 	return s.downErr
 }
 
+func (s *stubComposeRunner) ComposePs(_ context.Context, _ string) ([]desiredstate.ContainerInfo, error) {
+	return nil, nil
+}
+
 type stubInspector struct {
 	labels map[string]reconcile.StackSyncMetadata
 	err    error

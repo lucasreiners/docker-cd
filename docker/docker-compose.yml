@@ -21,3 +21,15 @@ services:
       - RECONCILE_REMOVE_ENABLED=${RECONCILE_REMOVE_ENABLED:-false}
       - DRIFT_POLICY=${DRIFT_POLICY:-revert}
     restart: unless-stopped
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    ports:
+      - "8081:80"
+    environment:
+      - DOCKER_CD_API_BASE_URL=http://docker-cd:8080
+    depends_on:
+      - docker-cd
+    restart: unless-stopped

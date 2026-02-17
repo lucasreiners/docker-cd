@@ -18,6 +18,8 @@ type ComposeRunner interface {
 	ComposeUp(ctx context.Context, projectName, composeFile, overrideFile, workDir string) error
 	// ComposeDown runs docker compose down --remove-orphans for the given project.
 	ComposeDown(ctx context.Context, projectName, composeFile, workDir string) error
+	// ComposePs lists running containers for a compose project.
+	ComposePs(ctx context.Context, projectName string) ([]desiredstate.ContainerInfo, error)
 }
 
 // ContainerInspector reads runtime container labels.
@@ -212,6 +214,9 @@ func (r *Reconciler) Reconcile(ctx context.Context) []ReconciliationRun {
 				break
 			}
 		}
+		// Always refresh container counts for in-sync stacks
+		projectName := deriveProjectName(r.projectNamePrefix(), drift.Path)
+		r.updateContainerCounts(ctx, drift.Path, projectName)
 	}
 
 	var runs []ReconciliationRun
@@ -319,6 +324,9 @@ func (r *Reconciler) syncStack(ctx context.Context, drift DriftResult, snap *des
 	now := time.Now().UTC().Format(time.RFC3339)
 	r.updateStackSynced(drift.Path, snap.Revision, commitMessage, stack.ComposeHash, now)
 
+	// Update container counts
+	r.updateContainerCounts(ctx, drift.Path, projectName)
+
 	return run
 }
 
@@ -417,6 +425,41 @@ func (r *Reconciler) updateStackSynced(path, revision, commitMessage, composeHas
 
 func (r *Reconciler) projectNamePrefix() string {
 	return ""
+}
+
+// updateContainerCounts queries container status for a stack and updates the store.
+func (r *Reconciler) updateContainerCounts(ctx context.Context, stackPath, projectName string) {
+	containers, err := r.compose.ComposePs(ctx, projectName)
+	if err != nil {
+		log.Printf("[warn] failed to get container counts for stack %s: %v", stackPath, err)
+		return
+	}
+
+	running := 0
+	for _, c := range containers {
+		if c.State == "running" {
+			running++
+		}
+	}
+
+	snap := r.store.Get()
+	if snap == nil {
+		return
+	}
+	for i := range snap.Stacks {
+		if snap.Stacks[i].Path == stackPath {
+			snap.Stacks[i].ContainersRunning = running
+			snap.Stacks[i].ContainersTotal = len(containers)
+			break
+		}
+	}
+	r.store.Set(snap)
+}
+
+// GetContainers returns container details for a stack.
+func (r *Reconciler) GetContainers(ctx context.Context, stackPath string) ([]desiredstate.ContainerInfo, error) {
+	projectName := deriveProjectName(r.projectNamePrefix(), stackPath)
+	return r.compose.ComposePs(ctx, projectName)
 }
 
 func (r *Reconciler) getCommitMessage(snap *desiredstate.Snapshot) string {

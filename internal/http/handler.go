@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -164,5 +165,69 @@ func AckHandler(ackStore *reconcile.AckStore, reconciler ReconcileRunner) gin.Ha
 			"stack_path": req.StackPath,
 			"message":    "drift acknowledged for " + req.StackPath,
 		})
+	}
+}
+
+// ContainerLister abstracts container listing for a stack.
+type ContainerLister interface {
+	GetContainers(ctx context.Context, stackPath string) ([]desiredstate.ContainerInfo, error)
+}
+
+// ContainersHandler handles GET /api/stacks/:path to list containers for a stack.
+func ContainersHandler(lister ContainerLister) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		stackPath := c.Param("path")
+		if stackPath == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "stack path is required"})
+			return
+		}
+		// Strip leading slash from wildcard param
+		stackPath = strings.TrimPrefix(stackPath, "/")
+
+		containers, err := lister.GetContainers(c.Request.Context(), stackPath)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if containers == nil {
+			containers = []desiredstate.ContainerInfo{}
+		}
+		c.JSON(http.StatusOK, containers)
+	}
+}
+
+// EventsHandler handles GET /api/events as an SSE stream.
+// It subscribes to the broadcaster and pushes events to the client.
+func EventsHandler(broadcaster *desiredstate.Broadcaster, store *desiredstate.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("Content-Type", "text/event-stream")
+		c.Header("Cache-Control", "no-cache")
+		c.Header("Connection", "keep-alive")
+		c.Header("X-Accel-Buffering", "no")
+
+		sub := broadcaster.Subscribe()
+		defer broadcaster.Unsubscribe(sub)
+
+		// Send initial snapshot of current stacks
+		stacks := store.GetStacks()
+		if stacks == nil {
+			stacks = []desiredstate.StackRecord{}
+		}
+		broadcaster.PublishStackSnapshot(stacks)
+
+		ctx := c.Request.Context()
+		flusher := c.Writer
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-sub.Done():
+				return
+			case event := <-sub.Events:
+				fmt.Fprintf(flusher, "id: %s\nevent: %s\ndata: %s\n\n", event.ID, event.Type, event.Data)
+				flusher.Flush()
+			}
+		}
 	}
 }

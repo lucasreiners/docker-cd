@@ -26,6 +26,17 @@ const (
 	StackSyncFailed   StackSyncStatus = "failed"
 )
 
+// ContainerInfo describes a single container within a stack.
+type ContainerInfo struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Service string `json:"service"`
+	State   string `json:"state"`  // running, exited, paused, restarting, dead, created
+	Health  string `json:"health"` // healthy, unhealthy, starting, none
+	Image   string `json:"image"`
+	Ports   string `json:"ports,omitempty"`
+}
+
 // StackRecord represents a stack discovered in the repository.
 type StackRecord struct {
 	Path        string          `json:"path"`
@@ -33,6 +44,10 @@ type StackRecord struct {
 	ComposeHash string          `json:"composeHash"`
 	Status      StackSyncStatus `json:"status"`
 	Content     []byte          `json:"-"` // raw compose file content, not exposed via API
+
+	// Container summary
+	ContainersRunning int `json:"containersRunning"`
+	ContainersTotal   int `json:"containersTotal"`
 
 	// Sync metadata (populated after reconciliation)
 	SyncedRevision      string `json:"syncedRevision,omitempty"`

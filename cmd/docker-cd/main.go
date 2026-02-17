@@ -53,9 +53,11 @@ func main() {
 
 	// Initialize desired-state refresh pipeline
 	store := desiredstate.NewStore()
+	broadcaster := desiredstate.NewBroadcaster()
 	queue := refresh.NewQueue()
 	composeReader := &gitval.GoGitComposeReader{}
 	refreshSvc := refresh.NewService(cfg, store, queue, composeReader)
+	refreshSvc.SetBroadcaster(broadcaster)
 
 	// Initialize reconciler
 	policy := reconcile.ReconciliationPolicy{
@@ -81,7 +83,7 @@ func main() {
 	// Start background refresh loop (startup + periodic polling)
 	go refreshSvc.Start(context.Background())
 
-	router := handler.NewRouter(runner, cfg, refreshSvc, store, ackStore, reconciler)
+	router := handler.NewRouter(runner, cfg, refreshSvc, store, ackStore, reconciler, broadcaster)
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	log.Printf("Docker-CD starting on %s", addr)

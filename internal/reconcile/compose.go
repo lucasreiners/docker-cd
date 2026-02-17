@@ -2,12 +2,14 @@ package reconcile
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/lucasreiners/docker-cd/internal/desiredstate"
 	"github.com/lucasreiners/docker-cd/internal/docker"
 )
 
@@ -62,6 +64,79 @@ func (r *DockerComposeRunner) ComposeDown(ctx context.Context, projectName, comp
 		return fmt.Errorf("docker compose down failed: %s: %w", string(out), err)
 	}
 	return nil
+}
+
+// composePsJSON represents the JSON output of docker compose ps --format json.
+type composePsJSON struct {
+	ID         string `json:"ID"`
+	Name       string `json:"Name"`
+	Service    string `json:"Service"`
+	State      string `json:"State"`
+	Health     string `json:"Health"`
+	Image      string `json:"Image"`
+	Publishers []struct {
+		URL           string `json:"URL"`
+		TargetPort    int    `json:"TargetPort"`
+		PublishedPort int    `json:"PublishedPort"`
+		Protocol      string `json:"Protocol"`
+	} `json:"Publishers"`
+}
+
+// ComposePs lists running containers for a compose project.
+func (r *DockerComposeRunner) ComposePs(ctx context.Context, projectName string) ([]desiredstate.ContainerInfo, error) {
+	args := docker.HostArgs(r.Socket)
+	args = append(args, "compose", "-p", projectName, "ps", "-a", "--format", "json")
+
+	out, err := r.Runner.Run(ctx, "docker", args...)
+	if err != nil {
+		return nil, fmt.Errorf("docker compose ps failed: %s: %w", string(out), err)
+	}
+
+	trimmed := strings.TrimSpace(string(out))
+	if trimmed == "" {
+		return nil, nil
+	}
+
+	var containers []desiredstate.ContainerInfo
+
+	// docker compose ps --format json outputs one JSON object per line
+	for _, line := range strings.Split(trimmed, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		var ps composePsJSON
+		if err := json.Unmarshal([]byte(line), &ps); err != nil {
+			continue
+		}
+
+		health := ps.Health
+		if health == "" {
+			health = "none"
+		}
+
+		var ports []string
+		for _, p := range ps.Publishers {
+			if p.PublishedPort > 0 {
+				ports = append(ports, fmt.Sprintf("%d:%d/%s", p.PublishedPort, p.TargetPort, p.Protocol))
+			} else {
+				ports = append(ports, fmt.Sprintf("%d/%s", p.TargetPort, p.Protocol))
+			}
+		}
+
+		containers = append(containers, desiredstate.ContainerInfo{
+			ID:      ps.ID[:12], // short ID
+			Name:    ps.Name,
+			Service: ps.Service,
+			State:   ps.State,
+			Health:  health,
+			Image:   ps.Image,
+			Ports:   strings.Join(ports, ", "),
+		})
+	}
+
+	return containers, nil
 }
 
 // generateLabelOverride creates a docker-compose override YAML that adds

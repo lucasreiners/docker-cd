@@ -15,11 +15,12 @@ type ReconcileFunc func(ctx context.Context)
 
 // Service orchestrates desired-state refreshes from Git.
 type Service struct {
-	cfg        config.Config
-	store      *desiredstate.Store
-	queue      *Queue
-	reader     git.ComposeReader
-	reconcileF ReconcileFunc
+	cfg         config.Config
+	store       *desiredstate.Store
+	queue       *Queue
+	reader      git.ComposeReader
+	reconcileF  ReconcileFunc
+	broadcaster *desiredstate.Broadcaster
 }
 
 // NewService creates a refresh service.
@@ -30,6 +31,11 @@ func NewService(cfg config.Config, store *desiredstate.Store, queue *Queue, read
 		queue:  queue,
 		reader: reader,
 	}
+}
+
+// SetBroadcaster sets the SSE broadcaster for publishing state changes.
+func (s *Service) SetBroadcaster(b *desiredstate.Broadcaster) {
+	s.broadcaster = b
 }
 
 // SetReconcileFunc sets the optional callback that runs after each successful refresh.
@@ -93,6 +99,9 @@ func (s *Service) doRefresh(ctx context.Context, trigger Trigger) {
 	log.Printf("[info] starting refresh (source: %s)", trigger.Source)
 
 	s.store.UpdateStatus(desiredstate.RefreshStatusRefreshing, "")
+	if s.broadcaster != nil {
+		s.broadcaster.PublishRefreshStatus(s.store.GetRefreshStatus())
+	}
 
 	entries, commitHash, commitMessage, err := s.reader.ReadComposeFiles(
 		ctx,
@@ -105,6 +114,9 @@ func (s *Service) doRefresh(ctx context.Context, trigger Trigger) {
 	if err != nil {
 		log.Printf("[error] refresh failed: %v", err)
 		s.store.UpdateStatus(desiredstate.RefreshStatusFailed, err.Error())
+		if s.broadcaster != nil {
+			s.broadcaster.PublishRefreshStatus(s.store.GetRefreshStatus())
+		}
 		s.queue.Done()
 		return
 	}
@@ -124,6 +136,12 @@ func (s *Service) doRefresh(ctx context.Context, trigger Trigger) {
 
 	s.store.Set(snap)
 	log.Printf("[info] refresh completed: %d stacks at %s", len(newStacks), truncate(commitHash, 12))
+
+	// Publish SSE events for connected frontends
+	if s.broadcaster != nil {
+		s.broadcaster.PublishStackSnapshot(newStacks)
+		s.broadcaster.PublishRefreshStatus(s.store.GetRefreshStatus())
+	}
 
 	// Trigger reconciliation after successful refresh (FR-001, FR-002)
 	if s.reconcileF != nil {
