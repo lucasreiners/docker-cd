@@ -116,7 +116,7 @@ func TestDetectDrift_MissingMetadata_NeedsSync(t *testing.T) {
 	}
 }
 
-func TestDetectDrift_RevisionDrift(t *testing.T) {
+func TestDetectDrift_RevisionDriftIgnored(t *testing.T) {
 	store := desiredstate.NewStore()
 	store.Set(&desiredstate.Snapshot{Revision: "new-rev"})
 	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), nil, nil, reconcile.NewAckStore(), "")
@@ -133,8 +133,11 @@ func TestDetectDrift_RevisionDrift(t *testing.T) {
 	if len(drifts) != 1 {
 		t.Fatalf("expected 1 drift result, got %d", len(drifts))
 	}
-	if !drifts[0].NeedSync {
-		t.Error("expected NeedSync=true for revision drift")
+	if drifts[0].NeedSync {
+		t.Error("expected NeedSync=false for revision drift")
+	}
+	if drifts[0].Reason != "in sync" {
+		t.Errorf("expected 'in sync' reason, got %q", drifts[0].Reason)
 	}
 }
 

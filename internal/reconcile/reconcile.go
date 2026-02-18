@@ -127,16 +127,6 @@ func (r *Reconciler) DetectDrift(desired []desiredstate.StackRecord, runtime map
 			continue
 		}
 
-		snap := r.store.Get()
-		if snap != nil && rt.DesiredRevision != snap.Revision {
-			results = append(results, DriftResult{
-				Path:     d.Path,
-				NeedSync: true,
-				Reason:   fmt.Sprintf("revision drift: runtime=%s desired=%s", rt.DesiredRevision, snap.Revision),
-			})
-			continue
-		}
-
 		if rt.DesiredComposeHash != d.ComposeHash {
 			results = append(results, DriftResult{
 				Path:     d.Path,
