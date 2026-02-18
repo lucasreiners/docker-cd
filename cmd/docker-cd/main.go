@@ -71,6 +71,7 @@ func main() {
 	inspector := reconcile.NewDockerContainerInspector(dockerClient)
 	ackStore := reconcile.NewAckStore()
 	reconciler := reconcile.NewReconciler(store, policy, composeRunner, inspector, ackStore, cfg.GitDeployDir)
+	reconciler.SetBroadcaster(broadcaster)
 
 	// Wire reconciler into refresh pipeline
 	refreshSvc.SetReconcileFunc(func(ctx context.Context) {

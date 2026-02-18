@@ -53,13 +53,14 @@ type ReconciliationRun struct {
 
 // Reconciler compares desired state with runtime state and applies changes.
 type Reconciler struct {
-	mu        sync.Mutex
-	store     *desiredstate.Store
-	policy    ReconciliationPolicy
-	compose   ComposeRunner
-	inspector ContainerInspector
-	ackStore  *AckStore
-	deployDir string
+	mu          sync.Mutex
+	store       *desiredstate.Store
+	policy      ReconciliationPolicy
+	compose     ComposeRunner
+	inspector   ContainerInspector
+	ackStore    *AckStore
+	deployDir   string
+	broadcaster *desiredstate.Broadcaster
 }
 
 // NewReconciler creates a Reconciler.
@@ -79,6 +80,11 @@ func NewReconciler(
 		ackStore:  ackStore,
 		deployDir: deployDir,
 	}
+}
+
+// SetBroadcaster sets the SSE broadcaster for publishing stack updates.
+func (r *Reconciler) SetBroadcaster(b *desiredstate.Broadcaster) {
+	r.broadcaster = b
 }
 
 // DriftResult describes the drift status for a single stack.
@@ -378,6 +384,7 @@ func (r *Reconciler) updateStackStatus(path string, status desiredstate.StackSyn
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
+	var updated *desiredstate.StackRecord
 
 	for i := range snap.Stacks {
 		if snap.Stacks[i].Path == path {
@@ -387,10 +394,14 @@ func (r *Reconciler) updateStackStatus(path string, status desiredstate.StackSyn
 			if syncError != "" {
 				snap.Stacks[i].LastSyncError = syncError
 			}
+			updated = &snap.Stacks[i]
 			break
 		}
 	}
 	r.store.Set(snap)
+	if updated != nil && r.broadcaster != nil {
+		r.broadcaster.PublishStackUpsert(*updated)
+	}
 }
 
 func (r *Reconciler) updateStackSynced(path, revision, commitMessage, composeHash, syncedAt string) {
@@ -401,6 +412,7 @@ func (r *Reconciler) updateStackSynced(path, revision, commitMessage, composeHas
 	}
 
 	found := false
+	var updated *desiredstate.StackRecord
 	for i := range snap.Stacks {
 		if snap.Stacks[i].Path == path {
 			snap.Stacks[i].Status = desiredstate.StackSyncSynced
@@ -412,6 +424,7 @@ func (r *Reconciler) updateStackSynced(path, revision, commitMessage, composeHas
 			snap.Stacks[i].LastSyncStatus = string(desiredstate.StackSyncSynced)
 			snap.Stacks[i].LastSyncError = ""
 			found = true
+			updated = &snap.Stacks[i]
 			break
 		}
 	}
@@ -421,6 +434,9 @@ func (r *Reconciler) updateStackSynced(path, revision, commitMessage, composeHas
 		log.Printf("[debug] updateStackSynced: stack %s status set to synced", path)
 	}
 	r.store.Set(snap)
+	if updated != nil && r.broadcaster != nil {
+		r.broadcaster.PublishStackUpsert(*updated)
+	}
 }
 
 func (r *Reconciler) projectNamePrefix() string {
@@ -446,14 +462,19 @@ func (r *Reconciler) updateContainerCounts(ctx context.Context, stackPath, proje
 	if snap == nil {
 		return
 	}
+	var updated *desiredstate.StackRecord
 	for i := range snap.Stacks {
 		if snap.Stacks[i].Path == stackPath {
 			snap.Stacks[i].ContainersRunning = running
 			snap.Stacks[i].ContainersTotal = len(containers)
+			updated = &snap.Stacks[i]
 			break
 		}
 	}
 	r.store.Set(snap)
+	if updated != nil && r.broadcaster != nil {
+		r.broadcaster.PublishStackUpsert(*updated)
+	}
 }
 
 // GetContainers returns container details for a stack.
