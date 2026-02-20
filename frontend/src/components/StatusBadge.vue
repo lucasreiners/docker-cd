@@ -13,8 +13,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h } from 'vue'
 import type { Component } from 'vue'
+import { computed, h } from 'vue'
 
 const props = defineProps<{
   status: string

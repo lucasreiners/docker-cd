@@ -6,8 +6,8 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import type { RefreshSnapshot, StackRecord } from '../services/api'
 import { fetchRefreshStatus, fetchStacks } from '../services/api'
-import { SSEClient } from '../services/sse'
 import type { ConnectionState } from '../services/sse'
+import { SSEClient } from '../services/sse'
 
 export const useStacksStore = defineStore('stacks', () => {
   // State

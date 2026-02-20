@@ -1,8 +1,6 @@
 {
-  "$schema": "https://biomejs.dev/schemas/1.9.0/schema.json",
-  "organizeImports": {
-    "enabled": true
-  },
+  "$schema": "https://biomejs.dev/schemas/2.4.3/schema.json",
+  "assist": { "actions": { "source": { "organizeImports": "on" } } },
   "linter": {
     "enabled": true,
     "rules": {
@@ -26,11 +24,12 @@
     }
   },
   "files": {
-    "ignore": ["dist/", "node_modules/", "*.d.ts"]
+    "includes": ["src/**", "tests/**", "*.ts", "*.vue", "*.js"],
+    "ignoreUnknown": true
   },
   "overrides": [
     {
-      "include": ["**/*.vue"],
+      "includes": ["**/*.vue"],
       "linter": {
         "rules": {
           "correctness": {
@@ -44,6 +43,6 @@
   "vcs": {
     "enabled": true,
     "clientKind": "git",
-    "useIgnoreFile": true
+    "useIgnoreFile": false
   }
 }

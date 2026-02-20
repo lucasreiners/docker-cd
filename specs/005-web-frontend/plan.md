@@ -17,7 +17,7 @@ Deliver a minimal web UI that lists stacks, shows sync status, and updates via S
   the iteration process.
 -->
 
-**Language/Version**: Go 1.25.7 (backend), Node.js 20 LTS (frontend build/runtime)  
+**Language/Version**: Go 1.26.0 (backend), Bun 1.3.9 (frontend build/runtime)  
 **Primary Dependencies**: Gin (backend), Vue 3 + Vite + Naive UI + Pinia + Vue Router (frontend)  
 **Storage**: N/A (in-memory state in backend store and browser state)  
 **Testing**: `go test` + Testcontainers (backend), Vitest + @testing-library/vue (frontend), Playwright smoke test (optional)  

@@ -9,7 +9,7 @@ Implement reconciliation that compares desired state (from Git) to runtime state
 
 ## Technical Context
 
-**Language/Version**: Go 1.25.7  
+**Language/Version**: Go 1.26.0  
 **Primary Dependencies**: gin (HTTP), go-git (Git access)  
 **Storage**: Docker container labels for sync metadata; in-memory desired-state store  
 **Testing**: go test (unit), integration tests under `tests/integration`  
