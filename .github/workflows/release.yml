@@ -28,7 +28,7 @@ jobs:
           context: .
           file: docker/Dockerfile
           push: true
-          tags: ghcr.io/docker-cd-backend:${{ github.ref_name }}
+          tags: ghcr.io/lucasreiners/docker-cd-backend:${{ github.ref_name }}
 
   build-frontend:
     needs: verify
@@ -49,4 +49,4 @@ jobs:
           context: frontend
           file: frontend/Dockerfile
           push: true
-          tags: ghcr.io/docker-cd-frontend:${{ github.ref_name }}
+          tags: ghcr.io/lucasreiners/docker-cd-frontend:${{ github.ref_name }}
