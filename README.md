@@ -77,7 +77,7 @@ export GIT_REPO_URL="https://github.com/your-org/your-repo.git"
 export GIT_ACCESS_TOKEN="<token>"
 export GIT_REVISION="main"
 
-docker compose -f docker/docker-compose.yml up --build
+docker compose up --build
 ```
 
 - Backend API: http://localhost:8080
@@ -95,11 +95,11 @@ bun run dev     # starts Vite dev server on :8081, proxies /api to :8080
 
 ```bash
 # Go unit tests
-go test ./... -v
+cd backend && go test ./... -v
 
 # Frontend unit tests
 cd frontend && bun run test
 
 # Integration tests (requires a running Docker daemon)
-go test -tags integration ./tests/integration/... -v
+cd backend && go test -tags integration ./tests/integration/... -v
 ```

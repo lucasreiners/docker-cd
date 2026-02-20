@@ -1,0 +1,35 @@
+services:
+  docker-cd:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - PORT=8080
+      - PROJECT_NAME=Docker-CD
+      - GIN_MODE=release
+      - GIT_REPO_URL=${GIT_REPO_URL}
+      - GIT_ACCESS_TOKEN=${GIT_ACCESS_TOKEN}
+      - GIT_REVISION=${GIT_REVISION:-main}
+      - GIT_DEPLOY_DIR=${GIT_DEPLOY_DIR:-}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
+      - REFRESH_POLL_INTERVAL=${REFRESH_POLL_INTERVAL:-5m}
+      - RECONCILE_ENABLED=${RECONCILE_ENABLED:-true}
+      - RECONCILE_REMOVE_ENABLED=${RECONCILE_REMOVE_ENABLED:-false}
+      - DRIFT_POLICY=${DRIFT_POLICY:-revert}
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "8081:80"
+    environment:
+      - DOCKER_CD_API_BASE_URL=http://docker-cd:8080
+    depends_on:
+      - docker-cd
+    restart: unless-stopped
