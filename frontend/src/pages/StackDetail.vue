@@ -7,7 +7,7 @@
       <template #extra>
         <n-space :size="8" align="center" :wrap="false">
           <n-tag
-            v-if="stack && stack.containersTotal > 0"
+            v-if="stack && stack.containersTotal != null && stack.containersTotal > 0"
             size="small"
             round
             :type="containerPillType"

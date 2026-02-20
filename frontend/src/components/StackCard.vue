@@ -13,7 +13,7 @@
         </n-text>
         <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0">
           <n-tag
-            v-if="stack.containersTotal > 0"
+            v-if="stack.containersTotal != null && stack.containersTotal > 0"
             size="small"
             round
             :type="containerPillType"
