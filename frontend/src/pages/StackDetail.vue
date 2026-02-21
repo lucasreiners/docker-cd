@@ -1,19 +1,19 @@
 <template>
   <div>
-    <n-page-header @back="$router.push('/')" style="margin-bottom: 16px">
+    <n-page-header @back="$router.push('/')" style="margin-bottom: 24px">
       <template #title>
-        <n-text strong>{{ stackPath }}</n-text>
+        <n-text strong style="font-size: 20px">{{ stackPath }}</n-text>
       </template>
       <template #extra>
-        <n-space :size="8" align="center" :wrap="false">
+        <n-space :size="12" align="center" :wrap="false">
           <n-tag
             v-if="stack && stack.containersTotal != null && stack.containersTotal > 0"
-            size="small"
+            size="medium"
             round
             :type="containerPillType"
             :bordered="false"
           >
-            {{ stack.containersRunning }}/{{ stack.containersTotal }}
+            {{ stack.containersRunning }}/{{ stack.containersTotal }} containers
           </n-tag>
           <StatusBadge v-if="stack" :status="stack.status" />
         </n-space>
@@ -25,42 +25,69 @@
     </n-alert>
 
     <template v-else>
-      <n-card style="margin-bottom: 16px">
-        <n-descriptions :column="1" label-placement="left" bordered>
-          <n-descriptions-item label="Path">{{ stack.path }}</n-descriptions-item>
-          <n-descriptions-item label="Compose File">{{ stack.composeFile }}</n-descriptions-item>
-          <n-descriptions-item label="Compose Hash">
-            <n-text code>{{ stack.composeHash }}</n-text>
+      <!-- Overview Section -->
+      <n-card title="Overview" :segmented="{ content: true }" style="margin-bottom: 16px">
+        <n-descriptions :column="2" label-placement="left" :label-style="{ fontWeight: '600' }">
+          <n-descriptions-item label="Path">
+            <n-text style="font-family: monospace">{{ stack.path }}</n-text>
+          </n-descriptions-item>
+          <n-descriptions-item label="Compose File">
+            <n-text code>{{ stack.composeFile }}</n-text>
           </n-descriptions-item>
           <n-descriptions-item label="Status">
             <StatusBadge :status="stack.status" />
           </n-descriptions-item>
-          <n-descriptions-item v-if="stack.syncedRevision" label="Synced Revision">
+          <n-descriptions-item label="Compose Hash">
+            <n-text code style="font-size: 12px">{{ stack.composeHash }}</n-text>
+          </n-descriptions-item>
+        </n-descriptions>
+      </n-card>
+
+      <!-- Git Information Section -->
+      <n-card 
+        v-if="stack.syncedRevision || stack.syncedCommitMessage"
+        title="Git Information" 
+        :segmented="{ content: true }" 
+        style="margin-bottom: 16px"
+      >
+        <n-descriptions :column="1" label-placement="left" :label-style="{ fontWeight: '600' }">
+          <n-descriptions-item v-if="stack.syncedRevision" label="Revision">
             <n-text code>{{ stack.syncedRevision }}</n-text>
           </n-descriptions-item>
           <n-descriptions-item v-if="stack.syncedCommitMessage" label="Commit Message">
-            {{ stack.syncedCommitMessage }}
+            <n-text>{{ stack.syncedCommitMessage }}</n-text>
           </n-descriptions-item>
           <n-descriptions-item v-if="stack.syncedComposeHash" label="Synced Compose Hash">
-            <n-text code>{{ stack.syncedComposeHash }}</n-text>
+            <n-text code style="font-size: 12px">{{ stack.syncedComposeHash }}</n-text>
           </n-descriptions-item>
           <n-descriptions-item v-if="stack.syncedAt" label="Synced At">
-            {{ formatTime(stack.syncedAt) }}
+            <n-text>{{ formatTime(stack.syncedAt) }}</n-text>
           </n-descriptions-item>
-          <n-descriptions-item v-if="stack.lastSyncAt" label="Last Sync At">
-            {{ formatTime(stack.lastSyncAt) }}
+        </n-descriptions>
+      </n-card>
+
+      <!-- Sync Status Section -->
+      <n-card 
+        v-if="stack.lastSyncAt || stack.lastSyncStatus || stack.lastSyncError"
+        title="Last Sync Status" 
+        :segmented="{ content: true }" 
+        style="margin-bottom: 16px"
+      >
+        <n-descriptions :column="2" label-placement="left" :label-style="{ fontWeight: '600' }">
+          <n-descriptions-item v-if="stack.lastSyncAt" label="Last Sync">
+            <n-text>{{ formatTime(stack.lastSyncAt) }}</n-text>
           </n-descriptions-item>
-          <n-descriptions-item v-if="stack.lastSyncStatus" label="Last Sync Status">
+          <n-descriptions-item v-if="stack.lastSyncStatus" label="Result">
             <StatusBadge :status="stack.lastSyncStatus" />
           </n-descriptions-item>
-          <n-descriptions-item v-if="stack.lastSyncError" label="Last Sync Error">
+          <n-descriptions-item v-if="stack.lastSyncError" label="Error" :span="2">
             <n-text type="error">{{ stack.lastSyncError }}</n-text>
           </n-descriptions-item>
         </n-descriptions>
       </n-card>
 
-      <!-- Containers section -->
-      <n-card title="Containers" style="margin-bottom: 16px">
+      <!-- Containers Section -->
+      <n-card title="Containers" :segmented="{ content: true }">
         <n-spin v-if="containersLoading" size="small" />
         <n-text v-else-if="containersError" type="error" style="font-size: 13px">
           {{ containersError }}
@@ -70,38 +97,45 @@
           <div
             v-for="c in containers"
             :key="c.id"
-            class="container-row"
+            class="container-card"
           >
-            <div class="container-service">
-              <n-tag
-                size="small"
-                round
-                :type="containerStateType(c.state)"
-                :bordered="false"
-                style="min-width: 70px; text-align: center"
-              >
-                {{ c.state }}
-              </n-tag>
-              <n-text strong style="font-size: 13px">{{ c.service }}</n-text>
+            <div class="container-header">
+              <div class="container-title">
+                <n-tag
+                  size="small"
+                  round
+                  :type="containerStateType(c.state)"
+                  :bordered="false"
+                  style="min-width: 70px; text-align: center"
+                >
+                  {{ c.state }}
+                </n-tag>
+                <n-text strong style="font-size: 14px">{{ c.service }}</n-text>
+                <n-tag
+                  v-if="c.health && c.health !== 'none'"
+                  size="small"
+                  round
+                  :type="healthType(c.health)"
+                  :bordered="false"
+                >
+                  {{ c.health }}
+                </n-tag>
+              </div>
             </div>
-            <div class="container-details">
-              <n-text :depth="3" style="font-size: 12px">{{ c.image }}</n-text>
-              <n-tag
-                v-if="c.health && c.health !== 'none'"
-                size="tiny"
-                round
-                :type="healthType(c.health)"
-                :bordered="false"
-              >
-                {{ c.health }}
-              </n-tag>
-              <n-text v-if="c.ports" :depth="3" style="font-size: 11px; font-family: monospace">
-                {{ c.ports }}
-              </n-text>
+            <div class="container-info">
+              <div class="info-row">
+                <n-text :depth="2" style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px">Image</n-text>
+                <n-text style="font-size: 12px; font-family: monospace">{{ c.image }}</n-text>
+              </div>
+              <div v-if="c.ports" class="info-row">
+                <n-text :depth="2" style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px">Ports</n-text>
+                <n-text style="font-size: 12px; font-family: monospace">{{ c.ports }}</n-text>
+              </div>
+              <div class="info-row">
+                <n-text :depth="2" style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px">Container ID</n-text>
+                <n-text :depth="3" style="font-size: 11px; font-family: monospace">{{ c.id }}</n-text>
+              </div>
             </div>
-            <n-text :depth="3" style="font-size: 11px; font-family: monospace">
-              {{ c.id }}
-            </n-text>
           </div>
         </div>
       </n-card>
@@ -181,7 +215,14 @@ function healthType(health: string): 'success' | 'warning' | 'error' | 'default'
 
 function formatTime(iso: string): string {
   try {
-    return new Date(iso).toLocaleString()
+    const date = new Date(iso)
+    return date.toLocaleString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
   } catch {
     return iso
   }
@@ -201,30 +242,58 @@ watch(stackPath, () => {
 .container-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
 }
 
-.container-row {
+.container-card {
+  border-radius: 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  transition: all 0.2s ease;
+}
+
+.container-card:hover {
+  border-color: var(--border-hover);
+  background: var(--card-hover-bg);
+}
+
+.container-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  border-radius: 8px 8px 0 0;
+}
+
+.container-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.container-info {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.info-row {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 8px 12px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.container-service {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.info-row:not(:last-child) {
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-color);
 }
 
-.container-details {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  padding-left: 78px;
+/* Responsive layout for larger screens */
+@media (min-width: 768px) {
+  .info-row {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+  }
 }
 </style>

@@ -1,13 +1,56 @@
-:root {
-  color-scheme: dark;
+/* Light mode - improved contrast for better readability */
+:root[data-theme="light"] {
+  --bg-primary: #f5f5f7;
+  --bg-secondary: #ffffff;
+  --text-primary: #1d1d1f;
+  --text-secondary: #424245; /* Improved from #6e6e73 for better contrast (8.2:1 on white) */
+  --text-tertiary: #5e5e62; /* For less important text (5.8:1 on white) */
+  --border-color: #c7c7cc; /* More visible borders */
+  --border-hover: #a1a1a6; /* Darker on hover */
+  --card-hover-bg: #ebebed; /* More noticeable hover state */
+  --accent-bg: #e8f4fd; /* Light blue for highlights */
+  --success-text: #0d7d3a; /* High contrast green */
+  --error-text: #c41e3a; /* High contrast red */
+  --warning-text: #9f6b00; /* High contrast orange */
+}
+
+/* Dark mode - improved readability with balanced contrast */
+:root[data-theme="dark"] {
+  --bg-primary: #1a1b26;
+  --bg-secondary: #24283b;
+  --text-primary: #e0e2ea;
+  --text-secondary: #a9b1d6;
+  --text-tertiary: #787c99; /* For less important text */
+  --border-color: rgba(255, 255, 255, 0.15); /* More visible */
+  --border-hover: rgba(255, 255, 255, 0.25); /* Clearer on hover */
+  --card-hover-bg: #2d3149; /* More distinct hover state */
+  --accent-bg: #1e2537; /* Dark blue for highlights */
+  --success-text: #9ece6a; /* Softer green for dark mode */
+  --error-text: #f7768e; /* Softer red for dark mode */
+  --warning-text: #e0af68; /* Softer orange for dark mode */
+}
+
+/* Disable naive-ui component transitions during theme change to prevent staggered appearance */
+.theme-transitioning * {
+  transition: none !important;
 }
 
 body {
   margin: 0;
   font-family:
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  background: #1e1e2e;
-  color: #cdd6f4;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  /* Improve text rendering */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Enhanced focus visibility for accessibility */
+:focus-visible {
+  outline: 2px solid var(--border-hover);
+  outline-offset: 2px;
 }
 
 /* Argo CD-style grid cards */
@@ -15,4 +58,19 @@ body {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 16px;
+}
+
+/* Improve link contrast in light mode */
+:root[data-theme="light"] a {
+  color: #0066cc;
+}
+
+:root[data-theme="light"] a:hover {
+  color: #004999;
+}
+
+/* Better code block readability */
+code,
+pre {
+  font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
 }
