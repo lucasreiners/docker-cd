@@ -83,9 +83,9 @@ describe('StackCard', () => {
     expect(wrapper.text()).toContain('apps/api')
   })
 
-  it('renders compose file name', () => {
+  it('renders container count', () => {
     const wrapper = mount(StackCard, mountOpts())
-    expect(wrapper.text()).toContain('docker-compose.yml')
+    expect(wrapper.text()).toContain('3')
   })
 
   it('renders truncated revision', () => {
