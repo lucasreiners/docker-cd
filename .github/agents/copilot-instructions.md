@@ -11,6 +11,8 @@ Auto-generated from all feature plans. Last updated: 2026-02-15
 - Docker container labels for sync metadata; in-memory desired-state store (004-stack-sync)
 - Go 1.25.7 (backend), Node.js 20 LTS (frontend build/runtime) + Gin (backend), Vue 3 + Vite + Naive UI + Pinia + Vue Router (frontend) (005-web-frontend)
 - N/A (in-memory state in backend store and browser state) (005-web-frontend)
+- Go 1.26.0 + gin (HTTP), go-git (Git access), Docker CLI via CommandRunner abstraction (006-scheduled-stack-updates)
+- Docker container labels for stack metadata; in-memory desired-state store (006-scheduled-stack-updates)
 
 - Go 1.22 + Go standard library (`net/http`, `os/exec`) (001-skeleton-runtime)
 
@@ -30,9 +32,9 @@ tests/
 Go 1.22: Follow standard conventions
 
 ## Recent Changes
+- 006-scheduled-stack-updates: Added Go 1.26.0 + gin (HTTP), go-git (Git access), Docker CLI via CommandRunner abstraction
 - 005-web-frontend: Added Go 1.25.7 (backend), Node.js 20 LTS (frontend build/runtime) + Gin (backend), Vue 3 + Vite + Naive UI + Pinia + Vue Router (frontend)
 - 004-stack-sync: Added Go 1.25.7 + gin (HTTP), go-git (Git access)
-- 003-desired-state-cache: Added Go 1.25.7 + Gin v1.11.0, go-git v5.16.5
 
 
 <!-- MANUAL ADDITIONS START -->

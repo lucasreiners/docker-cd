@@ -17,12 +17,32 @@ ArgoCD, but for Docker. A GitOps continuous delivery agent for Docker Compose en
 | `RECONCILE_ENABLED` | no | `true` | Enable/disable stack reconciliation |
 | `RECONCILE_REMOVE_ENABLED` | no | `false` | Allow removal of stacks deleted from desired state |
 | `DRIFT_POLICY` | no | `revert` | Drift handling: `revert` (auto-fix) or `flag` (require ack) |
+| `UPDATER_ENABLED` | no | `false` | Enable/disable scheduled image updates |
+| `UPDATER_CRON` | no | `0 3 * * *` | Cron expression for update schedule (default: 3 AM UTC daily) |
 
 The service validates repository access on startup and exits immediately if any required variable is missing or credentials are invalid.
 
 ### Webhook Setup
 
 Configure a GitHub webhook pointing to `https://your-host/api/webhook` with content type `application/json`. Set the same secret in both GitHub and the `WEBHOOK_SECRET` environment variable. If no secret is configured, all webhook requests are accepted without signature validation.
+
+### Scheduled Updates
+
+The updater feature automatically checks for new container images and updates running stacks. When enabled, it:
+
+- Pulls latest images for all managed stacks
+- Detects image changes by comparing digests
+- Triggers reconciliation to recreate containers with new images
+- Prunes unused images to reclaim disk space
+
+To enable scheduled updates:
+
+```bash
+export UPDATER_ENABLED=true
+export UPDATER_CRON="0 3 * * *"  # 3 AM UTC daily (default)
+```
+
+The updater is disabled by default. Update cycles run sequentially to avoid resource contention, and the service gracefully waits for active cycles to complete during shutdown.
 
 ## Run
 

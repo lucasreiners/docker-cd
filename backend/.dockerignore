@@ -6,3 +6,6 @@ tests/
 .env*
 .gitignore
 .dockerignore
+*.test
+*.out
+coverage/

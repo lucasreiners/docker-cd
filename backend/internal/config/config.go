@@ -35,6 +35,10 @@ type Config struct {
 	ReconcileEnabled       bool
 	ReconcileRemoveEnabled bool
 	DriftPolicy            string // "revert" or "flag"
+
+	// Updater settings
+	UpdaterEnabled bool   // UPDATER_ENABLED
+	UpdaterCron    string // UPDATER_CRON
 }
 
 // Load reads configuration from environment variables, falling back to defaults.
@@ -94,6 +98,19 @@ func Load() (Config, []string) {
 		}
 	}
 
+	// Updater settings
+	updaterEnabled := false
+	if v := os.Getenv("UPDATER_ENABLED"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			updaterEnabled = b
+		}
+	}
+
+	updaterCron := "0 3 * * *" // Default: 3 AM UTC daily
+	if v := os.Getenv("UPDATER_CRON"); v != "" {
+		updaterCron = v
+	}
+
 	cfg := Config{
 		Port:                   port,
 		ProjectName:            projectName,
@@ -107,6 +124,8 @@ func Load() (Config, []string) {
 		ReconcileEnabled:       reconcileEnabled,
 		ReconcileRemoveEnabled: reconcileRemoveEnabled,
 		DriftPolicy:            driftPolicy,
+		UpdaterEnabled:         updaterEnabled,
+		UpdaterCron:            updaterCron,
 	}
 
 	var errs []string
