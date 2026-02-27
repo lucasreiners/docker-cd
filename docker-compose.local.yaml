@@ -1,6 +1,8 @@
 services:
   docker-cd:
-    image: ghcr.io/lucasreiners/docker-cd-backend:v0.1.0
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
     ports:
       - "8080:8080"
     volumes:
@@ -21,7 +23,9 @@ services:
     restart: unless-stopped
 
   frontend:
-    image: ghcr.io/lucasreiners/docker-cd-frontend:v0.1.0
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
     ports:
       - "8081:80"
     environment:
