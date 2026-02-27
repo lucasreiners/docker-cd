@@ -1,5 +1,6 @@
 # Go build artifacts
 /docker-cd
+backend/docker-cd
 *.exe
 *.exe~
 *.dll
