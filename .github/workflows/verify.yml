@@ -40,11 +40,3 @@ jobs:
       - run: bun run build
       - name: Run tests with coverage
         run: bun run test --coverage
-      - name: Generate coverage summary
-        run: |
-          echo "### Frontend Coverage Report" >> $GITHUB_STEP_SUMMARY
-          if [ -f coverage/coverage-summary.json ]; then
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            cat coverage/coverage-summary.json | head -20 >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-          fi
