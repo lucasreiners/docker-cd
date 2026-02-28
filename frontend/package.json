@@ -23,6 +23,7 @@
     "@biomejs/biome": "^2.4.3",
     "@testing-library/vue": "^8.1.0",
     "@vitejs/plugin-vue": "^5.2.1",
+    "@vitest/coverage-v8": "4.0.18",
     "@vue/test-utils": "^2.4.6",
     "happy-dom": "^15.11.7",
     "typescript": "^5.9.3",
