@@ -118,7 +118,9 @@ func TriggerUpdateHandler(scheduler UpdateTrigger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log.Printf("[DEBUG] POST /api/update received from %s", c.ClientIP())
 
-		err := scheduler.TriggerUpdateCycle(c.Request.Context())
+		// Use context.Background() for long-running background operations
+		// to prevent cancellation when the HTTP request completes or client disconnects
+		err := scheduler.TriggerUpdateCycle(context.Background())
 		if err != nil {
 			log.Printf("[ERROR] trigger update failed: %v", err)
 			c.JSON(http.StatusConflict, gin.H{
