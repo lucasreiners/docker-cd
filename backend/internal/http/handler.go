@@ -28,6 +28,7 @@ type CommandRunner interface {
 // UpdateTrigger abstracts the scheduler's manual trigger capability.
 type UpdateTrigger interface {
 	TriggerUpdateCycle(ctx context.Context) error
+	GetUpdateStatus() interface{}
 }
 
 // RootHandler returns a Gin handler that renders the status page.
@@ -127,6 +128,24 @@ func TriggerUpdateHandler(scheduler UpdateTrigger) gin.HandlerFunc {
 		c.JSON(http.StatusAccepted, gin.H{
 			"status":  "triggered",
 			"message": "update cycle started in background",
+		})
+	}
+}
+
+// UpdateStatusHandler handles GET /api/update/status to check if an update cycle is running.
+func UpdateStatusHandler(scheduler UpdateTrigger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		status := scheduler.GetUpdateStatus()
+		if status == nil {
+			c.JSON(http.StatusOK, gin.H{
+				"running": false,
+				"message": "no update cycle in progress",
+			})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"running": true,
+			"cycle":   status,
 		})
 	}
 }

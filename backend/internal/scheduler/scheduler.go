@@ -138,18 +138,33 @@ func (s *SchedulerService) TriggerUpdateCycle(ctx context.Context) error {
 	}
 
 	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.activeUpdate != nil {
-		s.mu.Unlock()
 		return fmt.Errorf("update cycle already in progress (cycle_id: %s)", s.activeUpdate.CycleID)
 	}
-	s.mu.Unlock()
+
+	// Create and set active update immediately to prevent race condition
+	cycle := NewUpdateCycle()
+	s.activeUpdate = cycle
 
 	// Trigger update cycle in background
-	go s.runUpdateCycle(ctx)
+	go s.executeUpdateCycleManual(ctx, cycle)
 	return nil
 }
 
+// GetUpdateStatus returns the current update cycle status.
+func (s *SchedulerService) GetUpdateStatus() interface{} {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.activeUpdate
+}
+
 // runUpdateCycle executes a full update cycle (T013)
+// Used by cron scheduler - can terminate existing cycles
 func (s *SchedulerService) runUpdateCycle(ctx context.Context) {
 	s.mu.Lock()
 	// Terminate existing cycle if running (FR-020)
@@ -175,6 +190,22 @@ func (s *SchedulerService) runUpdateCycle(ctx context.Context) {
 	}()
 
 	// Execute update cycle
+	s.executeUpdateCycle(ctx, cycle)
+}
+
+// executeUpdateCycleManual executes an update cycle from manual trigger
+// Does not terminate existing cycles (that check already happened)
+func (s *SchedulerService) executeUpdateCycleManual(ctx context.Context, cycle *UpdateCycle) {
+	defer func() {
+		s.mu.Lock()
+		s.activeUpdate = nil
+		s.mu.Unlock()
+		select {
+		case s.stopChan <- struct{}{}:
+		default:
+		}
+	}()
+
 	s.executeUpdateCycle(ctx, cycle)
 }
 

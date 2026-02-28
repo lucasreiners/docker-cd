@@ -570,11 +570,16 @@ func TestAckHandler_MissingStackPath(t *testing.T) {
 type stubScheduler struct {
 	triggerErr error
 	triggered  bool
+	status     interface{}
 }
 
 func (s *stubScheduler) TriggerUpdateCycle(ctx context.Context) error {
 	s.triggered = true
 	return s.triggerErr
+}
+
+func (s *stubScheduler) GetUpdateStatus() interface{} {
+	return s.status
 }
 
 func TestTriggerUpdateHandler_Success(t *testing.T) {

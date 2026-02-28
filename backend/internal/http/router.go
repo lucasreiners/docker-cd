@@ -29,6 +29,7 @@ func NewRouter(runner CommandRunner, cfg config.Config, refreshSvc *refresh.Serv
 	}
 	if scheduler != nil {
 		r.POST("/api/update", TriggerUpdateHandler(scheduler))
+		r.GET("/api/update/status", UpdateStatusHandler(scheduler))
 	}
 	if store != nil {
 		r.GET("/api/refresh-status", RefreshStatusHandler(store))
