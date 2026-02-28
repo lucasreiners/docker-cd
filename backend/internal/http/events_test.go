@@ -22,7 +22,7 @@ func setupRouterWithBroadcaster(runner handler.CommandRunner, cfg config.Config,
 	gin.SetMode(gin.TestMode)
 	queue := refresh.NewQueue()
 	svc := refresh.NewService(cfg, store, queue, nil)
-	return handler.NewRouter(runner, cfg, svc, store, nil, nil, broadcaster)
+	return handler.NewRouter(runner, cfg, svc, store, nil, nil, nil, broadcaster)
 }
 
 // sseEvent holds a parsed SSE event.

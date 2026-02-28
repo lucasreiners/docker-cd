@@ -25,6 +25,11 @@ type CommandRunner interface {
 	Run(ctx context.Context, name string, args ...string) ([]byte, error)
 }
 
+// UpdateTrigger abstracts the scheduler's manual trigger capability.
+type UpdateTrigger interface {
+	TriggerUpdateCycle(ctx context.Context) error
+}
+
 // RootHandler returns a Gin handler that renders the status page.
 func RootHandler(runner CommandRunner, cfg config.Config) gin.HandlerFunc {
 	// Build repo info from config (never includes token)
@@ -103,6 +108,25 @@ func ManualRefreshHandler(refreshSvc *refresh.Service) gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{
 			"status":  string(result),
 			"message": "manual refresh " + string(result),
+		})
+	}
+}
+
+// TriggerUpdateHandler handles POST /api/update to manually trigger an update cycle.
+func TriggerUpdateHandler(scheduler UpdateTrigger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		err := scheduler.TriggerUpdateCycle(c.Request.Context())
+		if err != nil {
+			c.JSON(http.StatusConflict, gin.H{
+				"error":   err.Error(),
+				"message": "failed to trigger update cycle",
+			})
+			return
+		}
+		log.Printf("[info] manual update cycle triggered")
+		c.JSON(http.StatusAccepted, gin.H{
+			"status":  "triggered",
+			"message": "update cycle started in background",
 		})
 	}
 }

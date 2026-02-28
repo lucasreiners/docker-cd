@@ -141,7 +141,7 @@ func main() {
 	// Start background refresh loop
 	go refreshSvc.Start(ctx)
 
-	router := handler.NewRouter(runner, cfg, refreshSvc, store, ackStore, reconciler, broadcaster)
+	router := handler.NewRouter(runner, cfg, refreshSvc, store, ackStore, reconciler, schedulerSvc, broadcaster)
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	logger.Info("http server starting", "addr", addr)

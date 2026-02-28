@@ -130,6 +130,25 @@ func (s *SchedulerService) Stop(ctx context.Context) error {
 	return nil
 }
 
+// TriggerUpdateCycle manually triggers an update cycle.
+// Returns an error if the scheduler is disabled or if an update is already in progress.
+func (s *SchedulerService) TriggerUpdateCycle(ctx context.Context) error {
+	if s == nil {
+		return fmt.Errorf("scheduler is disabled")
+	}
+
+	s.mu.Lock()
+	if s.activeUpdate != nil {
+		s.mu.Unlock()
+		return fmt.Errorf("update cycle already in progress (cycle_id: %s)", s.activeUpdate.CycleID)
+	}
+	s.mu.Unlock()
+
+	// Trigger update cycle in background
+	go s.runUpdateCycle(ctx)
+	return nil
+}
+
 // runUpdateCycle executes a full update cycle (T013)
 func (s *SchedulerService) runUpdateCycle(ctx context.Context) {
 	s.mu.Lock()

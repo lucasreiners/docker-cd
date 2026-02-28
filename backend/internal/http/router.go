@@ -16,7 +16,7 @@ type ReconcileRunner interface {
 }
 
 // NewRouter creates a Gin engine with all routes registered.
-func NewRouter(runner CommandRunner, cfg config.Config, refreshSvc *refresh.Service, store *desiredstate.Store, ackStore *reconcile.AckStore, reconciler ReconcileRunner, broadcaster ...*desiredstate.Broadcaster) *gin.Engine {
+func NewRouter(runner CommandRunner, cfg config.Config, refreshSvc *refresh.Service, store *desiredstate.Store, ackStore *reconcile.AckStore, reconciler ReconcileRunner, scheduler UpdateTrigger, broadcaster ...*desiredstate.Broadcaster) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
 
@@ -26,6 +26,9 @@ func NewRouter(runner CommandRunner, cfg config.Config, refreshSvc *refresh.Serv
 	if refreshSvc != nil {
 		r.POST("/api/webhook", WebhookHandler(cfg, refreshSvc))
 		r.POST("/api/refresh", ManualRefreshHandler(refreshSvc))
+	}
+	if scheduler != nil {
+		r.POST("/api/update", TriggerUpdateHandler(scheduler))
 	}
 	if store != nil {
 		r.GET("/api/refresh-status", RefreshStatusHandler(store))
