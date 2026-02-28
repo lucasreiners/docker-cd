@@ -20,6 +20,8 @@ services:
       - RECONCILE_ENABLED=${RECONCILE_ENABLED:-true}
       - RECONCILE_REMOVE_ENABLED=${RECONCILE_REMOVE_ENABLED:-false}
       - DRIFT_POLICY=${DRIFT_POLICY:-revert}
+      - UPDATER_ENABLED=${UPDATER_ENABLED:-true}
+      - UPDATER_CRON=${UPDATER_CRON:-0 3 * * *}
     restart: unless-stopped
 
   frontend:

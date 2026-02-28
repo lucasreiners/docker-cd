@@ -133,12 +133,11 @@ func (s *SchedulerService) Stop(ctx context.Context) error {
 // TriggerUpdateCycle manually triggers an update cycle.
 // Returns an error if the scheduler is disabled or if an update is already in progress.
 func (s *SchedulerService) TriggerUpdateCycle(ctx context.Context) error {
-	s.logger.Info("TriggerUpdateCycle called")
-	
 	if s == nil {
-		s.logger.Error("TriggerUpdateCycle: scheduler is nil")
 		return fmt.Errorf("scheduler is disabled")
 	}
+
+	s.logger.Info("TriggerUpdateCycle called")
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -152,7 +151,7 @@ func (s *SchedulerService) TriggerUpdateCycle(ctx context.Context) error {
 	}
 
 	s.logger.Info("no active update found, creating new cycle")
-	
+
 	// Create and set active update immediately to prevent race condition
 	cycle := NewUpdateCycle()
 	s.activeUpdate = cycle
@@ -174,12 +173,12 @@ func (s *SchedulerService) GetUpdateStatus() interface{} {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	if s.activeUpdate == nil {
 		s.logger.Debug("GetUpdateStatus: no active update")
 		return nil // Return untyped nil, not typed nil pointer
 	}
-	
+
 	s.logger.Debug("GetUpdateStatus: active update found",
 		"cycle_id", s.activeUpdate.CycleID,
 		"stacks_processed", s.activeUpdate.StacksProcessed)
@@ -221,7 +220,7 @@ func (s *SchedulerService) runUpdateCycle(ctx context.Context) {
 func (s *SchedulerService) executeUpdateCycleManual(ctx context.Context, cycle *UpdateCycle) {
 	s.logger.Info("executeUpdateCycleManual started",
 		"cycle_id", cycle.CycleID)
-		
+
 	defer func() {
 		s.logger.Info("executeUpdateCycleManual completing, clearing activeUpdate",
 			"cycle_id", cycle.CycleID)

@@ -117,7 +117,7 @@ func ManualRefreshHandler(refreshSvc *refresh.Service) gin.HandlerFunc {
 func TriggerUpdateHandler(scheduler UpdateTrigger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log.Printf("[DEBUG] POST /api/update received from %s", c.ClientIP())
-		
+
 		err := scheduler.TriggerUpdateCycle(c.Request.Context())
 		if err != nil {
 			log.Printf("[ERROR] trigger update failed: %v", err)
@@ -139,10 +139,10 @@ func TriggerUpdateHandler(scheduler UpdateTrigger) gin.HandlerFunc {
 func UpdateStatusHandler(scheduler UpdateTrigger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log.Printf("[DEBUG] GET /api/update/status received from %s", c.ClientIP())
-		
+
 		status := scheduler.GetUpdateStatus()
 		log.Printf("[DEBUG] status result: %v (type: %T, nil=%v)", status, status, status == nil)
-		
+
 		if status == nil {
 			log.Printf("[INFO] no update cycle in progress")
 			c.JSON(http.StatusOK, gin.H{
