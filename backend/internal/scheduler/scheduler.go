@@ -154,12 +154,16 @@ func (s *SchedulerService) TriggerUpdateCycle(ctx context.Context) error {
 }
 
 // GetUpdateStatus returns the current update cycle status.
+// Returns nil (untyped) when no update is in progress to allow proper nil checks.
 func (s *SchedulerService) GetUpdateStatus() interface{} {
 	if s == nil {
 		return nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.activeUpdate == nil {
+		return nil // Return untyped nil, not typed nil pointer
+	}
 	return s.activeUpdate
 }
 
