@@ -18,6 +18,8 @@ export const useStacksStore = defineStore('stacks', () => {
   const searchQuery = ref<string>('')
   const loading = ref(false)
   const error = ref<string | null>(null)
+  const updateProgress = ref<any>(null)
+  const isUpdating = ref(false)
 
   let sseClient: SSEClient | null = null
 
@@ -95,6 +97,18 @@ export const useStacksStore = defineStore('stacks', () => {
       onRefreshStatus(snapshot) {
         refreshStatus.value = snapshot as RefreshSnapshot
       },
+      onUpdateProgress(progress: any) {
+        updateProgress.value = progress
+        if (progress.type === 'started') {
+          isUpdating.value = true
+        } else if (progress.type === 'completed') {
+          isUpdating.value = false
+          // Clear progress after a short delay to show completion message
+          setTimeout(() => {
+            updateProgress.value = null
+          }, 3000)
+        }
+      },
       onConnectionChange(state) {
         connectionState.value = state
       },
@@ -129,6 +143,8 @@ export const useStacksStore = defineStore('stacks', () => {
     searchQuery,
     loading,
     error,
+    updateProgress,
+    isUpdating,
     // Getters
     stacks,
     filteredStacks,

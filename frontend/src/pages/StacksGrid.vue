@@ -83,30 +83,31 @@
           <n-text :depth="2" style="font-size: 13px">
             Manually trigger stack updates (pull images, apply changes, prune unused resources)
           </n-text>
+          <n-text
+            v-if="store.updateProgress"
+            :type="getProgressType(store.updateProgress.type)"
+            style="font-size: 12px; margin-top: 8px; display: block"
+          >
+            {{ store.updateProgress.message }}
+          </n-text>
+          <n-progress
+            v-if="store.updateProgress?.type === 'stack_progress'"
+            type="line"
+            :percentage="(store.updateProgress.current / store.updateProgress.total) * 100"
+            :show-indicator="false"
+            style="margin-top: 8px"
+          />
         </div>
         <n-button
           size="small"
           type="primary"
-          :loading="updating"
+          :loading="store.isUpdating"
+          :disabled="store.isUpdating"
           @click="doUpdate"
         >
           Update Stacks
         </n-button>
       </div>
-      <n-text
-        v-if="updateSuccess"
-        type="success"
-        style="font-size: 12px; margin-top: 12px; display: block"
-      >
-        ✓ Update cycle started successfully
-      </n-text>
-      <n-text
-        v-if="updateError"
-        type="error"
-        style="font-size: 12px; margin-top: 12px; display: block"
-      >
-        {{ updateError }}
-      </n-text>
     </n-card>
 
     <!-- Filter pills and search -->
@@ -213,9 +214,6 @@ const searchQuery = ref('')
 const filterStatus = ref('')
 const refreshing = ref(false)
 const refreshError = ref<string | null>(null)
-const updating = ref(false)
-const updateError = ref<string | null>(null)
-const updateSuccess = ref(false)
 
 async function doRefresh() {
   refreshing.value = true
@@ -230,20 +228,19 @@ async function doRefresh() {
 }
 
 async function doUpdate() {
-  updating.value = true
-  updateError.value = null
-  updateSuccess.value = false
   try {
     await triggerUpdate()
-    updateSuccess.value = true
-    setTimeout(() => {
-      updateSuccess.value = false
-    }, 5000)
   } catch (e) {
-    updateError.value = e instanceof Error ? e.message : 'Update failed'
-  } finally {
-    updating.value = false
+    // Error will be shown via SSE events or can be handled here if needed
+    console.error('Failed to trigger update:', e)
   }
+}
+
+function getProgressType(type: string): 'success' | 'error' | 'warning' | 'info' {
+  if (type === 'completed') return 'success'
+  if (type === 'stack_error') return 'error'
+  if (type === 'stack_success') return 'success'
+  return 'info'
 }
 
 function truncate(s: string, max: number): string {

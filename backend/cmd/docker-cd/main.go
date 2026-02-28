@@ -123,7 +123,7 @@ func main() {
 	})
 
 	// Initialize scheduler service (if enabled)
-	schedulerSvc, err := scheduler.NewSchedulerService(cfg, logger, store, dockerClient, reconciler)
+	schedulerSvc, err := scheduler.NewSchedulerService(cfg, logger, store, dockerClient, reconciler, broadcaster)
 	if err != nil {
 		logger.Error("scheduler initialization failed", "error", err)
 		os.Exit(1)

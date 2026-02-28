@@ -25,6 +25,7 @@ type SchedulerService struct {
 	store        *desiredstate.Store
 	dockerClient *docker.Client
 	reconciler   *reconcile.Reconciler
+	broadcaster  *desiredstate.Broadcaster
 }
 
 // NewSchedulerService creates a new scheduler service.
@@ -34,6 +35,7 @@ func NewSchedulerService(
 	store *desiredstate.Store,
 	dockerClient *docker.Client,
 	reconciler *reconcile.Reconciler,
+	broadcaster *desiredstate.Broadcaster,
 ) (*SchedulerService, error) {
 	if !cfg.UpdaterEnabled {
 		return nil, nil // Scheduler disabled
@@ -57,6 +59,7 @@ func NewSchedulerService(
 		store:        store,
 		dockerClient: dockerClient,
 		reconciler:   reconciler,
+		broadcaster:  broadcaster,
 	}, nil
 }
 
@@ -247,20 +250,53 @@ func (s *SchedulerService) executeUpdateCycle(ctx context.Context, cycle *Update
 		"cycle_id", cycle.CycleID,
 		"scheduled_time", cycle.StartTime)
 
+	// Publish started event
+	if s.broadcaster != nil {
+		s.broadcaster.PublishUpdateProgress(map[string]interface{}{
+			"type":      "started",
+			"cycle_id":  cycle.CycleID,
+			"message":   "Update cycle started",
+			"timestamp": cycle.StartTime,
+		})
+	}
+
 	snap := s.store.Get()
 	if snap == nil {
 		s.logger.Warn("no desired state available, skipping update cycle")
+		if s.broadcaster != nil {
+			s.broadcaster.PublishUpdateProgress(map[string]interface{}{
+				"type":      "completed",
+				"cycle_id":  cycle.CycleID,
+				"message":   "No stacks to update",
+				"timestamp": time.Now(),
+			})
+		}
 		return
 	}
 
+	totalStacks := len(snap.Stacks)
+
 	// Process each stack sequentially (T014, FR-016)
-	for _, stack := range snap.Stacks {
+	for i, stack := range snap.Stacks {
 		// Skip if stack is in error state (FR-014, T019)
 		if stack.Status == desiredstate.StackSyncFailed {
 			s.logger.Warn("skipping stack in failed state",
 				"stack", stack.Path,
 				"status", stack.Status)
 			continue
+		}
+
+		// Publish stack progress event
+		if s.broadcaster != nil {
+			s.broadcaster.PublishUpdateProgress(map[string]interface{}{
+				"type":      "stack_progress",
+				"cycle_id":  cycle.CycleID,
+				"stack":     stack.Path,
+				"current":   i + 1,
+				"total":     totalStacks,
+				"message":   fmt.Sprintf("Updating stack %s (%d/%d)", stack.Path, i+1, totalStacks),
+				"timestamp": time.Now(),
+			})
 		}
 
 		result := s.updateStack(ctx, stack)
@@ -271,13 +307,43 @@ func (s *SchedulerService) executeUpdateCycle(ctx context.Context, cycle *Update
 			s.logger.Warn("stack update failed, continuing with remaining stacks",
 				"stack", stack.Path,
 				"error", result.Error) // T019 - Continue on error (FR-012)
+
+			// Publish error event
+			if s.broadcaster != nil {
+				s.broadcaster.PublishUpdateProgress(map[string]interface{}{
+					"type":      "stack_error",
+					"cycle_id":  cycle.CycleID,
+					"stack":     stack.Path,
+					"error":     result.Error.Error(),
+					"timestamp": time.Now(),
+				})
+			}
 		} else {
 			cycle.ImagesPulled += len(result.ImagesPulled)
 			cycle.ContainersUpdated += result.ContainersUpdated
+
+			// Publish success event
+			if s.broadcaster != nil {
+				s.broadcaster.PublishUpdateProgress(map[string]interface{}{
+					"type":      "stack_success",
+					"cycle_id":  cycle.CycleID,
+					"stack":     stack.Path,
+					"timestamp": time.Now(),
+				})
+			}
 		}
 	}
 
 	// Prune images (T017)
+	if s.broadcaster != nil {
+		s.broadcaster.PublishUpdateProgress(map[string]interface{}{
+			"type":      "pruning",
+			"cycle_id":  cycle.CycleID,
+			"message":   "Pruning unused images",
+			"timestamp": time.Now(),
+		})
+	}
+
 	imagesRemoved, spaceReclaimed, err := s.dockerClient.PruneImages(ctx)
 	if err != nil {
 		s.logger.Error("image prune failed", "error", err)
@@ -301,6 +367,23 @@ func (s *SchedulerService) executeUpdateCycle(ctx context.Context, cycle *Update
 		"images_pruned", cycle.ImagesPruned,
 		"space_reclaimed", cycle.SpaceReclaimed,
 		"errors", len(cycle.Errors))
+
+	// Publish completion event
+	if s.broadcaster != nil {
+		s.broadcaster.PublishUpdateProgress(map[string]interface{}{
+			"type":               "completed",
+			"cycle_id":           cycle.CycleID,
+			"message":            "Update cycle completed",
+			"timestamp":          cycle.EndTime,
+			"duration":           cycle.EndTime.Sub(cycle.StartTime).String(),
+			"stacks_processed":   cycle.StacksProcessed,
+			"images_pulled":      cycle.ImagesPulled,
+			"containers_updated": cycle.ContainersUpdated,
+			"images_pruned":      cycle.ImagesPruned,
+			"space_reclaimed":    cycle.SpaceReclaimed,
+			"errors":             len(cycle.Errors),
+		})
+	}
 }
 
 // updateStack updates a single stack (T014-T016)
