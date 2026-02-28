@@ -1,7 +1,7 @@
-import { beforeEach, describe, expect, it, vi, afterEach } from 'vitest'
-import { SSEClient } from '../src/services/sse'
-import type { SSECallbacks } from '../src/services/sse'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { StackRecord } from '../src/services/api'
+import type { SSECallbacks } from '../src/services/sse'
+import { SSEClient } from '../src/services/sse'
 
 // Mock the API module
 vi.mock('../src/services/api', () => ({
@@ -26,7 +26,10 @@ class MockEventSource {
     if (!this.listeners.has(event)) {
       this.listeners.set(event, [])
     }
-    this.listeners.get(event)!.push(callback)
+    const callbacks = this.listeners.get(event)
+    if (callbacks) {
+      callbacks.push(callback)
+    }
   }
 
   removeEventListener(event: string, callback: (e: MessageEvent) => void): void {
@@ -48,7 +51,9 @@ class MockEventSource {
     const callbacks = this.listeners.get(event)
     if (callbacks) {
       const messageEvent = { data: JSON.stringify(data) } as MessageEvent
-      callbacks.forEach((cb) => cb(messageEvent))
+      for (const cb of callbacks) {
+        cb(messageEvent)
+      }
     }
   }
 
@@ -125,7 +130,7 @@ describe('SSEClient', () => {
 
     it('should close existing connection when connecting again', () => {
       const client = new SSEClient(callbacks)
-      
+
       // First connection
       client.connect()
       const firstES = (global as any).__mockEventSourceInstance
@@ -218,7 +223,7 @@ describe('SSEClient', () => {
 
     it('should ignore invalid JSON in events', () => {
       // Directly trigger with invalid JSON through the mock
-      const listeners = mockEventSource['listeners']
+      const listeners = mockEventSource.listeners
       const callbacks = listeners.get('stack.snapshot')
       if (callbacks && callbacks.length > 0) {
         const callback = callbacks[0]
@@ -301,7 +306,7 @@ describe('SSEClient', () => {
       // Next retry should still be capped at 30s
       const beforeError = currentES
       currentES.__triggerError()
-      
+
       vi.advanceTimersByTime(30000)
       const afterRetry = (global as any).__mockEventSourceInstance
       expect(afterRetry).not.toBe(beforeError)
@@ -453,7 +458,13 @@ describe('SSEClient', () => {
 
       // Close
       client.close()
-      expect(states).toEqual(['connected', 'reconnecting', 'disconnected', 'connected', 'disconnected'])
+      expect(states).toEqual([
+        'connected',
+        'reconnecting',
+        'disconnected',
+        'connected',
+        'disconnected',
+      ])
     })
   })
 })
