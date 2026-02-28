@@ -73,6 +73,16 @@ export async function triggerRefresh(): Promise<void> {
   }
 }
 
+export async function triggerUpdate(): Promise<void> {
+  const res = await fetch(`${getBaseURL()}/api/update`, { method: 'POST' })
+  if (!res.ok) {
+    if (res.status === 409) {
+      throw new Error('Update cycle already in progress')
+    }
+    throw new Error(`Failed to trigger update: ${res.status}`)
+  }
+}
+
 export function getEventsURL(): string {
   return `${getBaseURL()}/api/events`
 }

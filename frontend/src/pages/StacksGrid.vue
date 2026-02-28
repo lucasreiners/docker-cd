@@ -70,6 +70,45 @@
       </n-text>
     </n-card>
 
+    <!-- Manual Update Control -->
+    <n-card
+      size="small"
+      title="Stack Updates"
+      style="margin-bottom: 16px"
+      :bordered="true"
+      :segmented="{ content: true }"
+    >
+      <div class="refresh-bar">
+        <div class="refresh-info">
+          <n-text :depth="2" style="font-size: 13px">
+            Manually trigger stack updates (pull images, apply changes, prune unused resources)
+          </n-text>
+        </div>
+        <n-button
+          size="small"
+          type="primary"
+          :loading="updating"
+          @click="doUpdate"
+        >
+          Update Stacks
+        </n-button>
+      </div>
+      <n-text
+        v-if="updateSuccess"
+        type="success"
+        style="font-size: 12px; margin-top: 12px; display: block"
+      >
+        ✓ Update cycle started successfully
+      </n-text>
+      <n-text
+        v-if="updateError"
+        type="error"
+        style="font-size: 12px; margin-top: 12px; display: block"
+      >
+        {{ updateError }}
+      </n-text>
+    </n-card>
+
     <!-- Filter pills and search -->
     <div class="filter-section">
       <div class="filter-bar">
@@ -166,7 +205,7 @@
 import { ref } from 'vue'
 import StackCard from '../components/StackCard.vue'
 import StatusBadge from '../components/StatusBadge.vue'
-import { triggerRefresh } from '../services/api'
+import { triggerRefresh, triggerUpdate } from '../services/api'
 import { useStacksStore } from '../store/stacks'
 
 const store = useStacksStore()
@@ -174,6 +213,9 @@ const searchQuery = ref('')
 const filterStatus = ref('')
 const refreshing = ref(false)
 const refreshError = ref<string | null>(null)
+const updating = ref(false)
+const updateError = ref<string | null>(null)
+const updateSuccess = ref(false)
 
 async function doRefresh() {
   refreshing.value = true
@@ -184,6 +226,23 @@ async function doRefresh() {
     refreshError.value = e instanceof Error ? e.message : 'Refresh failed'
   } finally {
     refreshing.value = false
+  }
+}
+
+async function doUpdate() {
+  updating.value = true
+  updateError.value = null
+  updateSuccess.value = false
+  try {
+    await triggerUpdate()
+    updateSuccess.value = true
+    setTimeout(() => {
+      updateSuccess.value = false
+    }, 5000)
+  } catch (e) {
+    updateError.value = e instanceof Error ? e.message : 'Update failed'
+  } finally {
+    updating.value = false
   }
 }
 
