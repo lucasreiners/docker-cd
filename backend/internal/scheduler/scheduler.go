@@ -133,7 +133,10 @@ func (s *SchedulerService) Stop(ctx context.Context) error {
 // TriggerUpdateCycle manually triggers an update cycle.
 // Returns an error if the scheduler is disabled or if an update is already in progress.
 func (s *SchedulerService) TriggerUpdateCycle(ctx context.Context) error {
+	s.logger.Info("TriggerUpdateCycle called")
+	
 	if s == nil {
+		s.logger.Error("TriggerUpdateCycle: scheduler is nil")
 		return fmt.Errorf("scheduler is disabled")
 	}
 
@@ -141,12 +144,22 @@ func (s *SchedulerService) TriggerUpdateCycle(ctx context.Context) error {
 	defer s.mu.Unlock()
 
 	if s.activeUpdate != nil {
+		s.logger.Warn("update cycle already in progress",
+			"cycle_id", s.activeUpdate.CycleID,
+			"start_time", s.activeUpdate.StartTime,
+			"stacks_processed", s.activeUpdate.StacksProcessed)
 		return fmt.Errorf("update cycle already in progress (cycle_id: %s)", s.activeUpdate.CycleID)
 	}
 
+	s.logger.Info("no active update found, creating new cycle")
+	
 	// Create and set active update immediately to prevent race condition
 	cycle := NewUpdateCycle()
 	s.activeUpdate = cycle
+
+	s.logger.Info("update cycle created and starting",
+		"cycle_id", cycle.CycleID,
+		"start_time", cycle.StartTime)
 
 	// Trigger update cycle in background
 	go s.executeUpdateCycleManual(ctx, cycle)
@@ -161,9 +174,15 @@ func (s *SchedulerService) GetUpdateStatus() interface{} {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	
 	if s.activeUpdate == nil {
+		s.logger.Debug("GetUpdateStatus: no active update")
 		return nil // Return untyped nil, not typed nil pointer
 	}
+	
+	s.logger.Debug("GetUpdateStatus: active update found",
+		"cycle_id", s.activeUpdate.CycleID,
+		"stacks_processed", s.activeUpdate.StacksProcessed)
 	return s.activeUpdate
 }
 
@@ -200,10 +219,17 @@ func (s *SchedulerService) runUpdateCycle(ctx context.Context) {
 // executeUpdateCycleManual executes an update cycle from manual trigger
 // Does not terminate existing cycles (that check already happened)
 func (s *SchedulerService) executeUpdateCycleManual(ctx context.Context, cycle *UpdateCycle) {
+	s.logger.Info("executeUpdateCycleManual started",
+		"cycle_id", cycle.CycleID)
+		
 	defer func() {
+		s.logger.Info("executeUpdateCycleManual completing, clearing activeUpdate",
+			"cycle_id", cycle.CycleID)
 		s.mu.Lock()
 		s.activeUpdate = nil
 		s.mu.Unlock()
+		s.logger.Info("activeUpdate cleared",
+			"cycle_id", cycle.CycleID)
 		select {
 		case s.stopChan <- struct{}{}:
 		default:
@@ -211,6 +237,8 @@ func (s *SchedulerService) executeUpdateCycleManual(ctx context.Context, cycle *
 	}()
 
 	s.executeUpdateCycle(ctx, cycle)
+	s.logger.Info("executeUpdateCycle completed",
+		"cycle_id", cycle.CycleID)
 }
 
 // executeUpdateCycle performs the actual update operations (T013-T019)

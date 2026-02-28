@@ -116,15 +116,18 @@ func ManualRefreshHandler(refreshSvc *refresh.Service) gin.HandlerFunc {
 // TriggerUpdateHandler handles POST /api/update to manually trigger an update cycle.
 func TriggerUpdateHandler(scheduler UpdateTrigger) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		log.Printf("[DEBUG] POST /api/update received from %s", c.ClientIP())
+		
 		err := scheduler.TriggerUpdateCycle(c.Request.Context())
 		if err != nil {
+			log.Printf("[ERROR] trigger update failed: %v", err)
 			c.JSON(http.StatusConflict, gin.H{
 				"error":   err.Error(),
 				"message": "failed to trigger update cycle",
 			})
 			return
 		}
-		log.Printf("[info] manual update cycle triggered")
+		log.Printf("[INFO] manual update cycle triggered successfully")
 		c.JSON(http.StatusAccepted, gin.H{
 			"status":  "triggered",
 			"message": "update cycle started in background",
@@ -135,14 +138,20 @@ func TriggerUpdateHandler(scheduler UpdateTrigger) gin.HandlerFunc {
 // UpdateStatusHandler handles GET /api/update/status to check if an update cycle is running.
 func UpdateStatusHandler(scheduler UpdateTrigger) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		log.Printf("[DEBUG] GET /api/update/status received from %s", c.ClientIP())
+		
 		status := scheduler.GetUpdateStatus()
+		log.Printf("[DEBUG] status result: %v (type: %T, nil=%v)", status, status, status == nil)
+		
 		if status == nil {
+			log.Printf("[INFO] no update cycle in progress")
 			c.JSON(http.StatusOK, gin.H{
 				"running": false,
 				"message": "no update cycle in progress",
 			})
 			return
 		}
+		log.Printf("[INFO] update cycle in progress: %+v", status)
 		c.JSON(http.StatusOK, gin.H{
 			"running": true,
 			"cycle":   status,
