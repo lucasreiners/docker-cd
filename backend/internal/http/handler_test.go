@@ -30,7 +30,7 @@ func (s *stubRunner) Run(_ context.Context, _ string, _ ...string) ([]byte, erro
 
 func setupRouter(runner handler.CommandRunner, cfg config.Config) *gin.Engine {
 	gin.SetMode(gin.TestMode)
-	return handler.NewRouter(runner, cfg, nil, nil, nil, nil)
+	return handler.NewRouter(runner, cfg, nil, nil, nil, nil, nil)
 }
 
 func TestRootHandler_Success(t *testing.T) {
@@ -146,7 +146,7 @@ func setupRouterWithRefresh(runner handler.CommandRunner, cfg config.Config) *gi
 	store := desiredstate.NewStore()
 	queue := refresh.NewQueue()
 	svc := refresh.NewService(cfg, store, queue, nil)
-	return handler.NewRouter(runner, cfg, svc, store, nil, nil)
+	return handler.NewRouter(runner, cfg, svc, store, nil, nil, nil)
 }
 
 func TestWebhookHandler_NoSecretConfigured(t *testing.T) {
@@ -278,7 +278,7 @@ func TestRefreshStatusHandler_ReturnsJSON(t *testing.T) {
 	svc := refresh.NewService(cfg, store, queue, nil)
 
 	gin.SetMode(gin.TestMode)
-	router := handler.NewRouter(runner, cfg, svc, store, nil, nil)
+	router := handler.NewRouter(runner, cfg, svc, store, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/refresh-status", nil)
 	w := httptest.NewRecorder()
@@ -311,7 +311,7 @@ func TestRefreshStatusHandler_WithPopulatedStore(t *testing.T) {
 	svc := refresh.NewService(cfg, store, queue, nil)
 
 	gin.SetMode(gin.TestMode)
-	router := handler.NewRouter(runner, cfg, svc, store, nil, nil)
+	router := handler.NewRouter(runner, cfg, svc, store, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/refresh-status", nil)
 	w := httptest.NewRecorder()
@@ -341,7 +341,7 @@ func TestStacksHandler_EmptyStore(t *testing.T) {
 	svc := refresh.NewService(cfg, store, queue, nil)
 
 	gin.SetMode(gin.TestMode)
-	router := handler.NewRouter(runner, cfg, svc, store, nil, nil)
+	router := handler.NewRouter(runner, cfg, svc, store, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/stacks", nil)
 	w := httptest.NewRecorder()
@@ -373,7 +373,7 @@ func TestStacksHandler_WithStacks(t *testing.T) {
 	svc := refresh.NewService(cfg, store, queue, nil)
 
 	gin.SetMode(gin.TestMode)
-	router := handler.NewRouter(runner, cfg, svc, store, nil, nil)
+	router := handler.NewRouter(runner, cfg, svc, store, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/stacks", nil)
 	w := httptest.NewRecorder()
@@ -423,7 +423,7 @@ func TestStacksHandler_ExposeSyncMetadata(t *testing.T) {
 	svc := refresh.NewService(cfg, store, queue, nil)
 
 	gin.SetMode(gin.TestMode)
-	router := handler.NewRouter(runner, cfg, svc, store, nil, nil)
+	router := handler.NewRouter(runner, cfg, svc, store, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/stacks", nil)
 	w := httptest.NewRecorder()
@@ -479,7 +479,7 @@ func TestStacksHandler_SyncErrorExposed(t *testing.T) {
 	svc := refresh.NewService(cfg, store, queue, nil)
 
 	gin.SetMode(gin.TestMode)
-	router := handler.NewRouter(runner, cfg, svc, store, nil, nil)
+	router := handler.NewRouter(runner, cfg, svc, store, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/stacks", nil)
 	w := httptest.NewRecorder()
@@ -522,7 +522,7 @@ func TestAckHandler_Success(t *testing.T) {
 	}}
 
 	gin.SetMode(gin.TestMode)
-	router := handler.NewRouter(runner, cfg, svc, store, ackStore, rec)
+	router := handler.NewRouter(runner, cfg, svc, store, ackStore, rec, nil)
 
 	body := `{"stack_path": "app1"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/reconcile/ack", strings.NewReader(body))
@@ -554,7 +554,7 @@ func TestAckHandler_MissingStackPath(t *testing.T) {
 	rec := &stubReconciler{}
 
 	gin.SetMode(gin.TestMode)
-	router := handler.NewRouter(runner, cfg, svc, store, ackStore, rec)
+	router := handler.NewRouter(runner, cfg, svc, store, ackStore, rec, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/reconcile/ack", strings.NewReader(`{}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -563,5 +563,133 @@ func TestAckHandler_MissingStackPath(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected status 400, got %d", w.Code)
+	}
+}
+
+// stubScheduler implements UpdateTrigger for testing.
+type stubScheduler struct {
+	triggerErr error
+	triggered  bool
+	status     interface{}
+}
+
+func (s *stubScheduler) TriggerUpdateCycle(ctx context.Context) error {
+	s.triggered = true
+	return s.triggerErr
+}
+
+func (s *stubScheduler) GetUpdateStatus() interface{} {
+	return s.status
+}
+
+func TestTriggerUpdateHandler_Success(t *testing.T) {
+	runner := &stubRunner{output: []byte("a\n")}
+	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
+
+	store := desiredstate.NewStore()
+	queue := refresh.NewQueue()
+	svc := refresh.NewService(cfg, store, queue, nil)
+	scheduler := &stubScheduler{}
+
+	gin.SetMode(gin.TestMode)
+	router := handler.NewRouter(runner, cfg, svc, store, nil, nil, scheduler)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/update", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Errorf("expected status 202, got %d", w.Code)
+	}
+
+	if !scheduler.triggered {
+		t.Error("expected scheduler.TriggerUpdateCycle to be called")
+	}
+
+	body := w.Body.String()
+	if !strings.Contains(body, "triggered") {
+		t.Errorf("expected response to contain 'triggered', got: %s", body)
+	}
+}
+
+func TestTriggerUpdateHandler_AlreadyRunning(t *testing.T) {
+	runner := &stubRunner{output: []byte("a\n")}
+	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
+
+	store := desiredstate.NewStore()
+	queue := refresh.NewQueue()
+	svc := refresh.NewService(cfg, store, queue, nil)
+	scheduler := &stubScheduler{
+		triggerErr: fmt.Errorf("update cycle already in progress (cycle_id: test-123)"),
+	}
+
+	gin.SetMode(gin.TestMode)
+	router := handler.NewRouter(runner, cfg, svc, store, nil, nil, scheduler)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/update", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Errorf("expected status 409, got %d", w.Code)
+	}
+
+	body := w.Body.String()
+	if !strings.Contains(body, "already in progress") {
+		t.Errorf("expected response to contain error message, got: %s", body)
+	}
+}
+
+func TestUpdateStatusHandler_NoUpdate(t *testing.T) {
+	runner := &stubRunner{output: []byte("a\n")}
+	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
+
+	store := desiredstate.NewStore()
+	queue := refresh.NewQueue()
+	svc := refresh.NewService(cfg, store, queue, nil)
+	scheduler := &stubScheduler{status: nil} // No active update
+
+	gin.SetMode(gin.TestMode)
+	router := handler.NewRouter(runner, cfg, svc, store, nil, nil, scheduler)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/update/status", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	body := w.Body.String()
+	if !strings.Contains(body, `"running":false`) {
+		t.Errorf("expected running:false in response, got %s", body)
+	}
+}
+
+func TestUpdateStatusHandler_UpdateInProgress(t *testing.T) {
+	runner := &stubRunner{output: []byte("a\n")}
+	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
+
+	store := desiredstate.NewStore()
+	queue := refresh.NewQueue()
+	svc := refresh.NewService(cfg, store, queue, nil)
+	scheduler := &stubScheduler{
+		status: map[string]interface{}{"cycle_id": "test-123"},
+	}
+
+	gin.SetMode(gin.TestMode)
+	router := handler.NewRouter(runner, cfg, svc, store, nil, nil, scheduler)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/update/status", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	body := w.Body.String()
+	if !strings.Contains(body, `"running":true`) {
+		t.Errorf("expected running:true in response, got %s", body)
 	}
 }

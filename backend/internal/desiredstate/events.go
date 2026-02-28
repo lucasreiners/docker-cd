@@ -11,10 +11,13 @@ import (
 type EventType string
 
 const (
-	EventStackSnapshot EventType = "stack.snapshot"
-	EventStackUpsert   EventType = "stack.upsert"
-	EventStackDelete   EventType = "stack.delete"
-	EventRefreshStatus EventType = "refresh.status"
+	EventStackSnapshot   EventType = "stack.snapshot"
+	EventStackUpsert     EventType = "stack.upsert"
+	EventStackDelete     EventType = "stack.delete"
+	EventRefreshStatus   EventType = "refresh.status"
+	EventUpdateStarted   EventType = "update.started"
+	EventUpdateProgress  EventType = "update.progress"
+	EventUpdateCompleted EventType = "update.completed"
 )
 
 // SSEEvent represents a single event to be sent over the SSE stream.
@@ -125,6 +128,11 @@ func (b *Broadcaster) PublishStackUpsert(stack StackRecord) {
 // PublishRefreshStatus sends a refresh status update.
 func (b *Broadcaster) PublishRefreshStatus(snap *Snapshot) {
 	b.Publish(EventRefreshStatus, snap)
+}
+
+// PublishUpdateProgress sends an update cycle progress event.
+func (b *Broadcaster) PublishUpdateProgress(payload interface{}) {
+	b.Publish(EventUpdateProgress, payload)
 }
 
 // SubscriberCount returns the number of active subscribers.

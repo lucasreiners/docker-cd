@@ -10,6 +10,7 @@ export interface SSECallbacks {
   onUpsert?: (record: StackRecord) => void
   onDelete?: (path: string) => void
   onRefreshStatus?: (snapshot: unknown) => void
+  onUpdateProgress?: (progress: unknown) => void
   onConnectionChange?: (state: ConnectionState) => void
 }
 
@@ -78,6 +79,15 @@ export class SSEClient {
       try {
         const data = JSON.parse(e.data)
         this.callbacks.onRefreshStatus?.(data)
+      } catch {
+        // Ignore parse errors
+      }
+    })
+
+    this.es.addEventListener('update.progress', (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data)
+        this.callbacks.onUpdateProgress?.(data)
       } catch {
         // Ignore parse errors
       }

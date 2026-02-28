@@ -17,6 +17,7 @@ import (
 	handler "github.com/lucasreiners/docker-cd/internal/http"
 	"github.com/lucasreiners/docker-cd/internal/reconcile"
 	"github.com/lucasreiners/docker-cd/internal/refresh"
+	"github.com/lucasreiners/docker-cd/internal/scheduler"
 )
 
 func main() {
@@ -121,14 +122,26 @@ func main() {
 		}
 	})
 
+	// Initialize scheduler service (if enabled)
+	schedulerSvc, err := scheduler.NewSchedulerService(cfg, logger, store, dockerClient, reconciler, broadcaster)
+	if err != nil {
+		logger.Error("scheduler initialization failed", "error", err)
+		os.Exit(1)
+	}
+
 	// Create context with signal handling for graceful shutdown
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Start scheduler service in background (if enabled)
+	if schedulerSvc != nil {
+		go schedulerSvc.Start(ctx)
+	}
+
 	// Start background refresh loop
 	go refreshSvc.Start(ctx)
 
-	router := handler.NewRouter(runner, cfg, refreshSvc, store, ackStore, reconciler, broadcaster)
+	router := handler.NewRouter(runner, cfg, refreshSvc, store, ackStore, reconciler, schedulerSvc, broadcaster)
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	logger.Info("http server starting", "addr", addr)
@@ -150,8 +163,12 @@ func main() {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer shutdownCancel()
 
-		// TODO: Implement graceful shutdown for services
-		_ = shutdownCtx
+		// Gracefully stop scheduler service
+		if schedulerSvc != nil {
+			if err := schedulerSvc.Stop(shutdownCtx); err != nil {
+				logger.Error("scheduler shutdown error", "error", err)
+			}
+		}
 
 		logger.Info("shutdown complete")
 	case err := <-errChan:

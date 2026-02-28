@@ -1,5 +1,6 @@
 # Go build artifacts
 /docker-cd
+backend/docker-cd
 *.exe
 *.exe~
 *.dll
@@ -37,6 +38,7 @@ Thumbs.db
 # Frontend
 frontend/node_modules/
 frontend/dist/
+frontend/coverage/
 
 # Temporary
 *.tmp

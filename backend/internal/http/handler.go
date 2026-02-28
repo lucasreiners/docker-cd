@@ -25,6 +25,12 @@ type CommandRunner interface {
 	Run(ctx context.Context, name string, args ...string) ([]byte, error)
 }
 
+// UpdateTrigger abstracts the scheduler's manual trigger capability.
+type UpdateTrigger interface {
+	TriggerUpdateCycle(ctx context.Context) error
+	GetUpdateStatus() interface{}
+}
+
 // RootHandler returns a Gin handler that renders the status page.
 func RootHandler(runner CommandRunner, cfg config.Config) gin.HandlerFunc {
 	// Build repo info from config (never includes token)
@@ -103,6 +109,54 @@ func ManualRefreshHandler(refreshSvc *refresh.Service) gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{
 			"status":  string(result),
 			"message": "manual refresh " + string(result),
+		})
+	}
+}
+
+// TriggerUpdateHandler handles POST /api/update to manually trigger an update cycle.
+func TriggerUpdateHandler(scheduler UpdateTrigger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		log.Printf("[DEBUG] POST /api/update received from %s", c.ClientIP())
+
+		// Use context.Background() for long-running background operations
+		// to prevent cancellation when the HTTP request completes or client disconnects
+		err := scheduler.TriggerUpdateCycle(context.Background())
+		if err != nil {
+			log.Printf("[ERROR] trigger update failed: %v", err)
+			c.JSON(http.StatusConflict, gin.H{
+				"error":   err.Error(),
+				"message": "failed to trigger update cycle",
+			})
+			return
+		}
+		log.Printf("[INFO] manual update cycle triggered successfully")
+		c.JSON(http.StatusAccepted, gin.H{
+			"status":  "triggered",
+			"message": "update cycle started in background",
+		})
+	}
+}
+
+// UpdateStatusHandler handles GET /api/update/status to check if an update cycle is running.
+func UpdateStatusHandler(scheduler UpdateTrigger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		log.Printf("[DEBUG] GET /api/update/status received from %s", c.ClientIP())
+
+		status := scheduler.GetUpdateStatus()
+		log.Printf("[DEBUG] status result: %v (type: %T, nil=%v)", status, status, status == nil)
+
+		if status == nil {
+			log.Printf("[INFO] no update cycle in progress")
+			c.JSON(http.StatusOK, gin.H{
+				"running": false,
+				"message": "no update cycle in progress",
+			})
+			return
+		}
+		log.Printf("[INFO] update cycle in progress: %+v", status)
+		c.JSON(http.StatusOK, gin.H{
+			"running": true,
+			"cycle":   status,
 		})
 	}
 }

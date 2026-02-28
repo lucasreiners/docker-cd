@@ -70,6 +70,46 @@
       </n-text>
     </n-card>
 
+    <!-- Manual Update Control -->
+    <n-card
+      size="small"
+      title="Stack Updates"
+      style="margin-bottom: 16px"
+      :bordered="true"
+      :segmented="{ content: true }"
+    >
+      <div class="refresh-bar">
+        <div class="refresh-info">
+          <n-text :depth="2" style="font-size: 13px">
+            Manually trigger stack updates (pull images, apply changes, prune unused resources)
+          </n-text>
+          <n-text
+            v-if="store.updateProgress"
+            :type="getProgressType(store.updateProgress.type)"
+            style="font-size: 12px; margin-top: 8px; display: block"
+          >
+            {{ store.updateProgress.message }}
+          </n-text>
+          <n-progress
+            v-if="store.updateProgress?.type === 'stack_progress'"
+            type="line"
+            :percentage="(store.updateProgress.current / store.updateProgress.total) * 100"
+            :show-indicator="false"
+            style="margin-top: 8px"
+          />
+        </div>
+        <n-button
+          size="small"
+          type="primary"
+          :loading="store.isUpdating"
+          :disabled="store.isUpdating"
+          @click="doUpdate"
+        >
+          Update Stacks
+        </n-button>
+      </div>
+    </n-card>
+
     <!-- Filter pills and search -->
     <div class="filter-section">
       <div class="filter-bar">
@@ -166,7 +206,7 @@
 import { ref } from 'vue'
 import StackCard from '../components/StackCard.vue'
 import StatusBadge from '../components/StatusBadge.vue'
-import { triggerRefresh } from '../services/api'
+import { triggerRefresh, triggerUpdate } from '../services/api'
 import { useStacksStore } from '../store/stacks'
 
 const store = useStacksStore()
@@ -185,6 +225,22 @@ async function doRefresh() {
   } finally {
     refreshing.value = false
   }
+}
+
+async function doUpdate() {
+  try {
+    await triggerUpdate()
+  } catch (e) {
+    // Error will be shown via SSE events or can be handled here if needed
+    console.error('Failed to trigger update:', e)
+  }
+}
+
+function getProgressType(type: string): 'success' | 'error' | 'warning' | 'info' {
+  if (type === 'completed') return 'success'
+  if (type === 'stack_error') return 'error'
+  if (type === 'stack_success') return 'success'
+  return 'info'
 }
 
 function truncate(s: string, max: number): string {
