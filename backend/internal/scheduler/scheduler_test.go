@@ -465,7 +465,7 @@ func TestExecuteUpdateCycle_ContinueOnError(t *testing.T) {
 	mockRun.pullError = errors.New("pull failed for stack1")
 
 	cycle := NewUpdateCycle()
-	
+
 	// Manually run the first stack which will fail
 	stack1 := desiredstate.StackRecord{
 		Path:        "stack1",

@@ -13,7 +13,7 @@ class MockEventSource {
   url: string
   onopen: (() => void) | null = null
   onerror: (() => void) | null = null
-  private listeners: Map<string, ((e: MessageEvent) => void)[]> = new Map()
+  listeners: Map<string, ((e: MessageEvent) => void)[]> = new Map()
   readyState: number = 0 // CONNECTING
 
   constructor(url: string) {
