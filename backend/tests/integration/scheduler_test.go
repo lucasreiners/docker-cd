@@ -41,7 +41,7 @@ func TestSchedulerIntegration(t *testing.T) {
 	var testReconciler *reconcile.Reconciler // Placeholder
 
 	// Create scheduler service
-	schedulerSvc, err := scheduler.NewSchedulerService(cfg, logger, store, dockerClient, testReconciler)
+	schedulerSvc, err := scheduler.NewSchedulerService(cfg, logger, store, dockerClient, testReconciler, nil)
 	if err != nil {
 		t.Fatalf("Failed to create scheduler service: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestSchedulerDisabled(t *testing.T) {
 	runner := &docker.ExecRunner{}
 	dockerClient := docker.NewClient(runner, cfg.DockerSocket)
 
-	schedulerSvc, err := scheduler.NewSchedulerService(cfg, logger, store, dockerClient, nil)
+	schedulerSvc, err := scheduler.NewSchedulerService(cfg, logger, store, dockerClient, nil, nil)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestCronExpressionValidation(t *testing.T) {
 			runner := &docker.ExecRunner{}
 			dockerClient := docker.NewClient(runner, cfg.DockerSocket)
 
-			schedulerSvc, err := scheduler.NewSchedulerService(cfg, logger, store, dockerClient, nil)
+			schedulerSvc, err := scheduler.NewSchedulerService(cfg, logger, store, dockerClient, nil, nil)
 			if tt.shouldError && err == nil {
 				t.Error("Expected error but got none")
 			}
@@ -156,7 +156,7 @@ func TestSchedulerCustomSchedule(t *testing.T) {
 	runner := &docker.ExecRunner{}
 	dockerClient := docker.NewClient(runner, cfg.DockerSocket)
 
-	schedulerSvc, err := scheduler.NewSchedulerService(cfg, logger, store, dockerClient, nil)
+	schedulerSvc, err := scheduler.NewSchedulerService(cfg, logger, store, dockerClient, nil, nil)
 	if err != nil {
 		t.Fatalf("Failed to create scheduler with custom cron: %v", err)
 	}
@@ -191,7 +191,7 @@ func TestSchedulerLogging(t *testing.T) {
 	runner := &docker.ExecRunner{}
 	dockerClient := docker.NewClient(runner, cfg.DockerSocket)
 
-	schedulerSvc, err := scheduler.NewSchedulerService(cfg, logger, store, dockerClient, nil)
+	schedulerSvc, err := scheduler.NewSchedulerService(cfg, logger, store, dockerClient, nil, nil)
 	if err != nil {
 		t.Fatalf("Failed to create scheduler: %v", err)
 	}

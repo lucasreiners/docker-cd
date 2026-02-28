@@ -21,7 +21,7 @@ func TestNewSchedulerService_Disabled(t *testing.T) {
 	runner := &docker.ExecRunner{}
 	dockerClient := docker.NewClient(runner, cfg.DockerSocket)
 
-	svc, err := NewSchedulerService(cfg, logger, store, dockerClient, nil)
+	svc, err := NewSchedulerService(cfg, logger, store, dockerClient, nil, nil)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestNewSchedulerService_ValidCron(t *testing.T) {
 			runner := &docker.ExecRunner{}
 			dockerClient := docker.NewClient(runner, cfg.DockerSocket)
 
-			svc, err := NewSchedulerService(cfg, logger, store, dockerClient, nil)
+			svc, err := NewSchedulerService(cfg, logger, store, dockerClient, nil, nil)
 			if err != nil {
 				t.Fatalf("Unexpected error for valid cron %q: %v", tt.cron, err)
 			}
@@ -97,7 +97,7 @@ func TestNewSchedulerService_InvalidCron(t *testing.T) {
 			runner := &docker.ExecRunner{}
 			dockerClient := docker.NewClient(runner, cfg.DockerSocket)
 
-			svc, err := NewSchedulerService(cfg, logger, store, dockerClient, nil)
+			svc, err := NewSchedulerService(cfg, logger, store, dockerClient, nil, nil)
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
@@ -122,7 +122,7 @@ func TestNewSchedulerService_NilDependencies(t *testing.T) {
 	}
 
 	// Should not panic with nil dependencies
-	svc, err := NewSchedulerService(cfg, logger, nil, nil, nil)
+	svc, err := NewSchedulerService(cfg, logger, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
