@@ -13,6 +13,8 @@ Auto-generated from all feature plans. Last updated: 2026-02-15
 - N/A (in-memory state in backend store and browser state) (005-web-frontend)
 - Go 1.26.0 + gin (HTTP), go-git (Git access), Docker CLI via CommandRunner abstraction (006-scheduled-stack-updates)
 - Docker container labels for stack metadata; in-memory desired-state store (006-scheduled-stack-updates)
+- TypeScript 5.9, Vue 3.5 (Composition API) + Naive UI 2.43 (component library), Pinia 2.2 (state management), Vue Router 4.5 (007-stack-ui-enhancements)
+- N/A (frontend only, uses existing backend API) (007-stack-ui-enhancements)
 
 - Go 1.22 + Go standard library (`net/http`, `os/exec`) (001-skeleton-runtime)
 
@@ -32,9 +34,9 @@ tests/
 Go 1.22: Follow standard conventions
 
 ## Recent Changes
+- 007-stack-ui-enhancements: Added TypeScript 5.9, Vue 3.5 (Composition API) + Naive UI 2.43 (component library), Pinia 2.2 (state management), Vue Router 4.5
 - 006-scheduled-stack-updates: Added Go 1.26.0 + gin (HTTP), go-git (Git access), Docker CLI via CommandRunner abstraction
 - 005-web-frontend: Added Go 1.25.7 (backend), Node.js 20 LTS (frontend build/runtime) + Gin (backend), Vue 3 + Vite + Naive UI + Pinia + Vue Router (frontend)
-- 004-stack-sync: Added Go 1.25.7 + gin (HTTP), go-git (Git access)
 
 
 <!-- MANUAL ADDITIONS START -->
