@@ -18,6 +18,7 @@ export const useStacksStore = defineStore('stacks', () => {
   const searchQuery = ref<string>('')
   const loading = ref(false)
   const error = ref<string | null>(null)
+  // biome-ignore lint/suspicious/noExplicitAny: Progress type varies by event
   const updateProgress = ref<any>(null)
   const isUpdating = ref(false)
 
@@ -97,6 +98,7 @@ export const useStacksStore = defineStore('stacks', () => {
       onRefreshStatus(snapshot) {
         refreshStatus.value = snapshot as RefreshSnapshot
       },
+      // biome-ignore lint/suspicious/noExplicitAny: Progress type varies by event
       onUpdateProgress(progress: any) {
         updateProgress.value = progress
         if (progress.type === 'started') {

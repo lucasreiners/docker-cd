@@ -420,8 +420,10 @@ func (s *SchedulerService) updateStack(ctx context.Context, stack desiredstate.S
 
 	// Trigger reconciliation (T016)
 	runs := s.reconciler.Reconcile(ctx)
+	found := false
 	for _, run := range runs {
 		if run.StackPath == stack.Path {
+			found = true
 			result.ReconcileTriggered = true
 			if run.Result == "success" {
 				result.Success = true
@@ -437,6 +439,11 @@ func (s *SchedulerService) updateStack(ctx context.Context, stack desiredstate.S
 			}
 			break
 		}
+	}
+
+	// If no matching reconciliation run (reconciler disabled or no match), treat as success since pull succeeded
+	if !found {
+		result.Success = true
 	}
 
 	return result

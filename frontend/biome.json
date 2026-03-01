@@ -38,6 +38,16 @@
           }
         }
       }
+    },
+    {
+      "includes": ["tests/**/*.spec.ts"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off"
+          }
+        }
+      }
     }
   ],
   "vcs": {

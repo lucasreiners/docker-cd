@@ -32,6 +32,7 @@
 
 /* Disable naive-ui component transitions during theme change to prevent staggered appearance */
 .theme-transitioning * {
+  /* biome-ignore lint/complexity/noImportantStyles: Required to override all component transitions */
   transition: none !important;
 }
 
