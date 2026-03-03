@@ -26,9 +26,9 @@ func (c *Client) PullImages(ctx context.Context, projectName, composeFile string
 		"-f", composeFile,
 		"pull", "--quiet")
 
-	_, err := c.Runner.Run(ctx, "docker", args...)
+	out, err := c.Runner.Run(ctx, "docker", args...)
 	if err != nil {
-		return fmt.Errorf("docker compose pull failed: %w", err)
+		return fmt.Errorf("docker compose pull failed: %w (output: %s)", err, string(out))
 	}
 
 	return nil
