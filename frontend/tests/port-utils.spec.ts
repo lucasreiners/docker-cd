@@ -84,6 +84,20 @@ describe('parsePortString', () => {
     ])
   })
 
+  test('deduplicates identical port mappings', () => {
+    // Backend sometimes returns duplicate port strings like "8043:80/tcp, 8043:80/tcp"
+    const result = parsePortString('8043:80/tcp, 8043:80/tcp')
+    expect(result).toEqual([{ external: 8043, internal: 80, protocol: 'tcp' }])
+  })
+
+  test('deduplicates while preserving unique ports', () => {
+    const result = parsePortString('8080:80/tcp, 8080:80/tcp, 8443:443/tcp, 8443:443/tcp')
+    expect(result).toEqual([
+      { external: 8080, internal: 80, protocol: 'tcp' },
+      { external: 8443, internal: 443, protocol: 'tcp' },
+    ])
+  })
+
   test('validates port number range (rejects invalid)', () => {
     const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
