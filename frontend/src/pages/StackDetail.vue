@@ -129,7 +129,22 @@
               </div>
               <div v-if="c.ports" class="info-row">
                 <n-text :depth="2" style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px">Ports</n-text>
-                <n-text style="font-size: 12px; font-family: monospace">{{ c.ports }}</n-text>
+                <div class="port-pills">
+                  <n-tag
+                    v-for="(port, idx) in parsePortString(c.ports)"
+                    :key="`${c.id}-${port.external}-${port.internal}-${idx}`"
+                    size="small"
+                    round
+                    :bordered="false"
+                    :type="port.external !== null ? 'primary' : 'default'"
+                    :class="{ 'port-pill': port.external !== null, 'port-pill-internal': port.external === null }"
+                    :style="{ cursor: port.external !== null ? 'pointer' : 'default' }"
+                    @click="openPort(port.external, $event)"
+                    :title="port.external !== null ? `Open port ${port.external}` : 'Internal port only'"
+                  >
+                    {{ formatPortPill(port) }}
+                  </n-tag>
+                </div>
               </div>
               <div class="info-row">
                 <n-text :depth="2" style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px">Container ID</n-text>
@@ -150,6 +165,7 @@ import StatusBadge from '../components/StatusBadge.vue'
 import type { ContainerInfo } from '../services/api'
 import { fetchContainers } from '../services/api'
 import { useStacksStore } from '../store/stacks'
+import { buildPortURL, type PortMapping, parsePortString } from '../utils/portUtils'
 
 const route = useRoute()
 const store = useStacksStore()
@@ -228,6 +244,23 @@ function formatTime(iso: string): string {
   }
 }
 
+// Format port mapping as pill text "8080:80/tcp"
+function formatPortPill(port: PortMapping): string {
+  if (port.external !== null) {
+    return `${port.external}:${port.internal}/${port.protocol}`
+  }
+  return `${port.internal}/${port.protocol}`
+}
+
+// Open port in browser
+function openPort(port: number | null, event: MouseEvent): void {
+  if (port !== null) {
+    event.stopPropagation()
+    const url = buildPortURL(port)
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+}
+
 onMounted(() => {
   loadContainers()
 })
@@ -286,6 +319,27 @@ watch(stackPath, () => {
 .info-row:not(:last-child) {
   padding-bottom: 10px;
   border-bottom: 1px solid var(--border-color);
+}
+
+.port-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.port-pill {
+  transition: opacity 0.2s ease, transform 0.1s ease;
+}
+
+.port-pill:hover {
+  opacity: 0.8;
+  transform: scale(1.05);
+}
+
+.port-pill-internal {
+  opacity: 0.7;
+  cursor: default !important;
 }
 
 /* Responsive layout for larger screens */
