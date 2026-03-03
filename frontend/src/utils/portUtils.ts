@@ -76,7 +76,7 @@ export function parsePortString(ports: string): PortMapping[] {
   // Deduplicate port mappings based on external:internal/protocol combination
   const seen = new Set<string>()
   const deduplicated: PortMapping[] = []
-  
+
   for (const port of result) {
     const key = `${port.external}:${port.internal}/${port.protocol}`
     if (!seen.has(key)) {
