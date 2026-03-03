@@ -15,20 +15,20 @@
   },
   "dependencies": {
     "naive-ui": "^2.43.2",
-    "pinia": "^2.2.0",
-    "vue": "^3.5.28",
-    "vue-router": "^4.5.0"
+    "pinia": "^3.0.4",
+    "vue": "^3.5.29",
+    "vue-router": "^5.0.3"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.3",
+    "@biomejs/biome": "^2.4.5",
     "@testing-library/vue": "^8.1.0",
-    "@vitejs/plugin-vue": "^5.2.1",
+    "@vitejs/plugin-vue": "^6.0.0",
     "@vitest/coverage-v8": "4.0.18",
     "@vue/test-utils": "^2.4.6",
-    "happy-dom": "^15.11.7",
+    "happy-dom": "^20.8.3",
     "typescript": "^5.9.3",
     "vite": "^7.3.1",
     "vitest": "^4.0.18",
-    "vue-tsc": "^2.2.0"
+    "vue-tsc": "^3.2.5"
   }
 }
