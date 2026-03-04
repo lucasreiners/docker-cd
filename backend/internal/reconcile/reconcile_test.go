@@ -338,7 +338,8 @@ func TestReconcile_ComposeUpFailure(t *testing.T) {
 	store := desiredstate.NewStore()
 	composeContent := []byte("services:\n  web:\n    image: nginx\n")
 	store.Set(&desiredstate.Snapshot{
-		Revision: "rev1",
+		Revision:      "rev1",
+		RefreshStatus: desiredstate.RefreshStatusCompleted,
 		Stacks: []desiredstate.StackRecord{
 			{Path: "app1", ComposeFile: "docker-compose.yml", ComposeHash: "hash1", Status: desiredstate.StackSyncMissing, Content: composeContent},
 		},
@@ -379,7 +380,8 @@ func TestReconcile_DriftPolicy_Flag_NoAck(t *testing.T) {
 	store := desiredstate.NewStore()
 	composeContent := []byte("services:\n  web:\n    image: nginx\n")
 	store.Set(&desiredstate.Snapshot{
-		Revision: "rev1",
+		Revision:      "rev1",
+		RefreshStatus: desiredstate.RefreshStatusCompleted,
 		Stacks: []desiredstate.StackRecord{
 			{Path: "app1", ComposeFile: "docker-compose.yml", ComposeHash: "hash1", Status: desiredstate.StackSyncMissing, Content: composeContent},
 		},
@@ -407,7 +409,8 @@ func TestReconcile_DriftPolicy_Flag_WithAck(t *testing.T) {
 	store := desiredstate.NewStore()
 	composeContent := []byte("services:\n  web:\n    image: nginx\n")
 	store.Set(&desiredstate.Snapshot{
-		Revision: "rev1",
+		Revision:      "rev1",
+		RefreshStatus: desiredstate.RefreshStatusCompleted,
 		Stacks: []desiredstate.StackRecord{
 			{Path: "app1", ComposeFile: "docker-compose.yml", ComposeHash: "hash1", Status: desiredstate.StackSyncMissing, Content: composeContent},
 		},
@@ -441,7 +444,8 @@ func TestReconcile_DriftPolicy_Revert(t *testing.T) {
 	store := desiredstate.NewStore()
 	composeContent := []byte("services:\n  web:\n    image: nginx\n")
 	store.Set(&desiredstate.Snapshot{
-		Revision: "rev1",
+		Revision:      "rev1",
+		RefreshStatus: desiredstate.RefreshStatusCompleted,
 		Stacks: []desiredstate.StackRecord{
 			{Path: "app1", ComposeFile: "docker-compose.yml", ComposeHash: "hash1", Status: desiredstate.StackSyncMissing, Content: composeContent},
 		},
@@ -468,7 +472,8 @@ func TestReconcile_ConcurrencyMutex(t *testing.T) {
 	store := desiredstate.NewStore()
 	composeContent := []byte("services:\n  web:\n    image: nginx\n")
 	store.Set(&desiredstate.Snapshot{
-		Revision: "rev1",
+		Revision:      "rev1",
+		RefreshStatus: desiredstate.RefreshStatusCompleted,
 		Stacks: []desiredstate.StackRecord{
 			{Path: "app1", ComposeFile: "docker-compose.yml", ComposeHash: "hash1", Status: desiredstate.StackSyncMissing, Content: composeContent},
 		},
@@ -556,7 +561,8 @@ func TestReconciliationRun_Timestamps(t *testing.T) {
 	store := desiredstate.NewStore()
 	composeContent := []byte("services:\n  web:\n    image: nginx\n")
 	store.Set(&desiredstate.Snapshot{
-		Revision: "rev1",
+		Revision:      "rev1",
+		RefreshStatus: desiredstate.RefreshStatusCompleted,
 		Stacks: []desiredstate.StackRecord{
 			{Path: "app1", ComposeFile: "docker-compose.yml", ComposeHash: "hash1", Content: composeContent},
 		},
@@ -587,7 +593,8 @@ func TestReconcile_MultipleStacks_Sequential(t *testing.T) {
 	store := desiredstate.NewStore()
 	composeContent := []byte("services:\n  web:\n    image: nginx\n")
 	store.Set(&desiredstate.Snapshot{
-		Revision: "rev1",
+		Revision:      "rev1",
+		RefreshStatus: desiredstate.RefreshStatusCompleted,
 		Stacks: []desiredstate.StackRecord{
 			{Path: "app1", ComposeFile: "docker-compose.yml", ComposeHash: "h1", Content: composeContent},
 			{Path: "app2", ComposeFile: "docker-compose.yml", ComposeHash: "h2", Content: composeContent},
@@ -621,8 +628,9 @@ func TestReconcile_MultipleStacks_Sequential(t *testing.T) {
 func TestReconcile_RemoveStack(t *testing.T) {
 	store := desiredstate.NewStore()
 	store.Set(&desiredstate.Snapshot{
-		Revision: "rev1",
-		Stacks:   []desiredstate.StackRecord{},
+		Revision:      "rev1",
+		RefreshStatus: desiredstate.RefreshStatusCompleted,
+		Stacks:        []desiredstate.StackRecord{},
 	})
 
 	policy := reconcile.DefaultPolicy()

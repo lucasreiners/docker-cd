@@ -220,6 +220,7 @@ func TestTriggerUpdateCycle_Success(t *testing.T) {
 	store := desiredstate.NewStore()
 	// Add a test stack
 	store.Set(&desiredstate.Snapshot{
+		RefreshStatus: desiredstate.RefreshStatusCompleted,
 		Stacks: []desiredstate.StackRecord{{
 			Path:        "test-stack",
 			ComposeFile: "/test/docker-compose.yml",
@@ -274,6 +275,7 @@ func TestTriggerUpdateCycle_AlreadyRunning(t *testing.T) {
 
 	store := desiredstate.NewStore()
 	store.Set(&desiredstate.Snapshot{
+		RefreshStatus: desiredstate.RefreshStatusCompleted,
 		Stacks: []desiredstate.StackRecord{{
 			Path:        "test-stack",
 			ComposeFile: "/test/docker-compose.yml",

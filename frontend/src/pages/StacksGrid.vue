@@ -50,6 +50,13 @@
           <n-text :depth="3" style="font-size: 11px; margin-top: 4px">
             Last refreshed: {{ formatTime(store.refreshStatus.refreshedAt) }}
           </n-text>
+          <n-text
+            v-if="store.refreshStatus.updatesBlocked"
+            type="error"
+            style="font-size: 12px; margin-top: 6px; display: block"
+          >
+            Updates blocked: {{ store.refreshStatus.blockedReason || 'refresh pending' }}
+          </n-text>
         </div>
         <n-button
           size="small"

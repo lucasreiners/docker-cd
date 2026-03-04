@@ -21,6 +21,8 @@ type Service struct {
 	reader      git.ComposeReader
 	reconcileF  ReconcileFunc
 	broadcaster *desiredstate.Broadcaster
+	cancelRecon func()
+	cancelUpd   func()
 }
 
 // NewService creates a refresh service.
@@ -43,15 +45,18 @@ func (s *Service) SetReconcileFunc(f ReconcileFunc) {
 	s.reconcileF = f
 }
 
+// SetCancelFuncs sets optional callbacks to cancel running reconcile and update tasks.
+func (s *Service) SetCancelFuncs(cancelReconcile, cancelUpdate func()) {
+	s.cancelRecon = cancelReconcile
+	s.cancelUpd = cancelUpdate
+}
+
 // Start begins the refresh loop: listens for triggers from the queue and
 // performs refreshes. Also starts the periodic poll ticker if configured.
 // Blocks until ctx is cancelled.
 func (s *Service) Start(ctx context.Context) {
 	// Trigger initial startup refresh
-	s.queue.Enqueue(Trigger{
-		Source:      TriggerStartup,
-		RequestedAt: time.Now(),
-	})
+	s.enqueueRefresh(TriggerStartup)
 
 	// Start periodic polling if configured
 	if s.cfg.RefreshPollInterval > 0 {
@@ -71,6 +76,17 @@ func (s *Service) Start(ctx context.Context) {
 
 // RequestRefresh enqueues a refresh trigger and returns the queue result.
 func (s *Service) RequestRefresh(source TriggerSource) QueueResult {
+	return s.enqueueRefresh(source)
+}
+
+func (s *Service) enqueueRefresh(source TriggerSource) QueueResult {
+	if s.cancelRecon != nil {
+		s.cancelRecon()
+	}
+	if s.cancelUpd != nil {
+		s.cancelUpd()
+	}
+
 	return s.queue.Enqueue(Trigger{
 		Source:      source,
 		RequestedAt: time.Now(),
@@ -87,10 +103,7 @@ func (s *Service) pollLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			log.Printf("[info] periodic refresh triggered (interval: %s)", s.cfg.RefreshPollInterval)
-			s.queue.Enqueue(Trigger{
-				Source:      TriggerPeriodic,
-				RequestedAt: time.Now(),
-			})
+			s.enqueueRefresh(TriggerPeriodic)
 		}
 	}
 }
@@ -98,7 +111,7 @@ func (s *Service) pollLoop(ctx context.Context) {
 func (s *Service) doRefresh(ctx context.Context, trigger Trigger) {
 	log.Printf("[info] starting refresh (source: %s)", trigger.Source)
 
-	s.store.UpdateStatus(desiredstate.RefreshStatusRefreshing, "")
+	s.store.SetRefreshState(desiredstate.RefreshStatusRefreshing, "", true, "refreshing", git.DefaultLocalRepoPath)
 	if s.broadcaster != nil {
 		s.broadcaster.PublishRefreshStatus(s.store.GetRefreshStatus())
 	}
@@ -113,7 +126,7 @@ func (s *Service) doRefresh(ctx context.Context, trigger Trigger) {
 
 	if err != nil {
 		log.Printf("[error] refresh failed: %v", err)
-		s.store.UpdateStatus(desiredstate.RefreshStatusFailed, err.Error())
+		s.store.SetRefreshState(desiredstate.RefreshStatusFailed, err.Error(), true, "refresh failed", git.DefaultLocalRepoPath)
 		if s.broadcaster != nil {
 			s.broadcaster.PublishRefreshStatus(s.store.GetRefreshStatus())
 		}
@@ -124,14 +137,17 @@ func (s *Service) doRefresh(ctx context.Context, trigger Trigger) {
 	newStacks := s.buildStacksPreservingStatus(entries)
 
 	snap := &desiredstate.Snapshot{
-		Revision:      commitHash,
-		CommitMessage: commitMessage,
-		Ref:           s.cfg.GitRevision,
-		RefType:       "branch",
-		RefreshedAt:   time.Now(),
-		RefreshStatus: desiredstate.RefreshStatusCompleted,
-		RefreshError:  "",
-		Stacks:        newStacks,
+		Revision:       commitHash,
+		CommitMessage:  commitMessage,
+		Ref:            s.cfg.GitRevision,
+		RefType:        "branch",
+		RefreshedAt:    time.Now(),
+		RefreshStatus:  desiredstate.RefreshStatusCompleted,
+		RefreshError:   "",
+		UpdatesBlocked: false,
+		BlockedReason:  "",
+		LocalPath:      git.DefaultLocalRepoPath,
+		Stacks:         newStacks,
 	}
 
 	s.store.Set(snap)

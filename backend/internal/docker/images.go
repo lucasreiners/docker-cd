@@ -9,7 +9,7 @@ import (
 // ImageOperations defines operations for managing Docker images.
 type ImageOperations interface {
 	// PullImages pulls all images for a compose project
-	PullImages(ctx context.Context, projectName, composeFile string) error
+	PullImages(ctx context.Context, projectName, composeFile, workDir string) error
 
 	// PruneImages removes all unused and dangling images system-wide
 	PruneImages(ctx context.Context) (imagesRemoved int, spaceReclaimed string, err error)
@@ -20,11 +20,12 @@ type ImageOperations interface {
 
 // PullImages pulls all images defined in a compose file.
 // Uses "docker compose pull" to handle all images in the compose file.
-func (c *Client) PullImages(ctx context.Context, projectName, composeFile string) error {
-	args := append(HostArgs(c.Socket),
-		"compose", "-p", projectName,
-		"-f", composeFile,
-		"pull")
+func (c *Client) PullImages(ctx context.Context, projectName, composeFile, workDir string) error {
+	args := append(HostArgs(c.Socket), "compose", "-p", projectName)
+	if workDir != "" {
+		args = append(args, "--project-directory", workDir)
+	}
+	args = append(args, "-f", composeFile, "pull")
 
 	out, err := c.Runner.Run(ctx, "docker", args...)
 	if err != nil {

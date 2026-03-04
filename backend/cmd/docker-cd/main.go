@@ -86,7 +86,8 @@ func main() {
 	store := desiredstate.NewStore()
 	broadcaster := desiredstate.NewBroadcaster()
 	queue := refresh.NewQueue()
-	composeReader := &gitval.GoGitComposeReader{}
+	localClone := gitval.NewLocalClone(gitval.DefaultLocalRepoPath, cfg.GitRepoURL, cfg.GitAccessToken, cfg.GitRevision)
+	composeReader := gitval.NewLocalComposeReader(localClone)
 	refreshSvc := refresh.NewService(cfg, store, queue, composeReader)
 	refreshSvc.SetBroadcaster(broadcaster)
 
@@ -128,6 +129,12 @@ func main() {
 		logger.Error("scheduler initialization failed", "error", err)
 		os.Exit(1)
 	}
+
+	refreshSvc.SetCancelFuncs(reconciler.CancelActive, func() {
+		if schedulerSvc != nil {
+			schedulerSvc.CancelActiveUpdate()
+		}
+	})
 
 	// Create context with signal handling for graceful shutdown
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

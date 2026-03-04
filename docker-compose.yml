@@ -5,6 +5,7 @@ services:
       - "8080:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - repo-data:/repo
     environment:
       - PORT=8080
       - PROJECT_NAME=Docker-CD
@@ -31,3 +32,6 @@ services:
     depends_on:
       - docker-cd
     restart: unless-stopped
+
+volumes:
+  repo-data:

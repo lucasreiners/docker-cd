@@ -5,14 +5,22 @@ package integration_test
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	gogit "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/lucasreiners/docker-cd/internal/config"
 	"github.com/lucasreiners/docker-cd/internal/desiredstate"
 	"github.com/lucasreiners/docker-cd/internal/docker"
+	"github.com/lucasreiners/docker-cd/internal/git"
 	"github.com/lucasreiners/docker-cd/internal/reconcile"
+	"github.com/lucasreiners/docker-cd/internal/refresh"
 	"github.com/lucasreiners/docker-cd/tests/integration/dind"
 )
 
@@ -102,6 +110,157 @@ func TestDinD_ReconcileComposeUp(t *testing.T) {
 		t.Errorf("store status: got %q, want %q", snap.Stacks[0].Status, desiredstate.StackSyncSynced)
 	}
 	cleanupStack(t, runner, "myapp")
+}
+
+func TestDinD_ReconcileBlockedUntilRefreshComplete(t *testing.T) {
+	env := dind.StartT(t)
+	runner := &dindRunner{Host: env.DockerHost}
+
+	composeContent := []byte("services:\n  web:\n    image: nginx:alpine\n")
+	composeHash := desiredstate.ComposeHash(composeContent)
+
+	store := desiredstate.NewStore()
+	store.Set(&desiredstate.Snapshot{
+		Revision:       "rev1",
+		CommitMessage:  "blocked",
+		RefreshStatus:  desiredstate.RefreshStatusQueued,
+		UpdatesBlocked: true,
+		BlockedReason:  "refresh pending",
+		Stacks: []desiredstate.StackRecord{
+			{
+				Path:        "gatedapp",
+				ComposeFile: "docker-compose.yml",
+				ComposeHash: composeHash,
+				Status:      desiredstate.StackSyncMissing,
+				Content:     composeContent,
+			},
+		},
+	})
+
+	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
+	client := docker.NewClient(runner, env.DockerHost)
+	inspector := reconcile.NewDockerContainerInspector(client)
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), composeRunner, inspector, reconcile.NewAckStore(), "")
+
+	runs := r.Reconcile(context.Background())
+	if len(runs) != 0 {
+		t.Fatalf("expected reconcile to be blocked, got %d runs", len(runs))
+	}
+
+	store.Set(&desiredstate.Snapshot{
+		Revision:       "rev1",
+		CommitMessage:  "unblocked",
+		RefreshStatus:  desiredstate.RefreshStatusCompleted,
+		UpdatesBlocked: false,
+		Stacks: []desiredstate.StackRecord{
+			{
+				Path:        "gatedapp",
+				ComposeFile: "docker-compose.yml",
+				ComposeHash: composeHash,
+				Status:      desiredstate.StackSyncMissing,
+				Content:     composeContent,
+			},
+		},
+	})
+
+	runs2 := r.Reconcile(context.Background())
+	if len(runs2) != 1 || runs2[0].Result != "success" {
+		t.Fatalf("expected reconcile to run after refresh, got %s", safeResult(runs2))
+	}
+	waitForContainers(t, runner, 1, 15*time.Second)
+	cleanupStack(t, runner, "gatedapp")
+}
+
+func TestLocalClone_ManualRefreshUpdatesSnapshot(t *testing.T) {
+	remoteDir := t.TempDir()
+	revision, firstHash := initLocalRepo(t, remoteDir, "stack-a", "docker-compose.yml", "services:\n  web:\n    image: nginx:alpine\n")
+
+	cloneDir := filepath.Join(t.TempDir(), "repo")
+	localClone := git.NewLocalClone(cloneDir, remoteDir, "", revision)
+	reader := git.NewLocalComposeReader(localClone)
+
+	store := desiredstate.NewStore()
+	queue := refresh.NewQueue()
+	cfg := config.Config{GitRepoURL: remoteDir, GitRevision: revision}
+	svc := refresh.NewService(cfg, store, queue, reader)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	go svc.Start(ctx)
+
+	waitForRevision(t, store, firstHash)
+
+	secondHash := addLocalCommit(t, remoteDir, "stack-a", "docker-compose.yml", "services:\n  web:\n    image: nginx:1.25-alpine\n")
+	_ = svc.RequestRefresh(refresh.TriggerManual)
+	waitForRevision(t, store, secondHash)
+}
+
+func TestLocalClone_RefreshFailureBlocksUpdates(t *testing.T) {
+	store := desiredstate.NewStore()
+	queue := refresh.NewQueue()
+	badClone := git.NewLocalClone(filepath.Join(t.TempDir(), "repo"), filepath.Join(t.TempDir(), "missing"), "", "main")
+	reader := git.NewLocalComposeReader(badClone)
+
+	cfg := config.Config{GitRepoURL: "missing", GitRevision: "main"}
+	svc := refresh.NewService(cfg, store, queue, reader)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	go svc.Start(ctx)
+
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for refresh failure")
+		default:
+			snap := store.Get()
+			if snap != nil && snap.RefreshStatus == desiredstate.RefreshStatusFailed {
+				if !snap.UpdatesBlocked {
+					t.Fatal("expected updatesBlocked to be true after refresh failure")
+				}
+				if snap.BlockedReason == "" {
+					t.Fatal("expected blockedReason to be set after refresh failure")
+				}
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+}
+
+func TestLocalClone_RefreshRecoversFromCorruption(t *testing.T) {
+	remoteDir := t.TempDir()
+	revision, firstHash := initLocalRepo(t, remoteDir, "stack-a", "docker-compose.yml", "services:\n  web:\n    image: nginx:alpine\n")
+
+	cloneDir := filepath.Join(t.TempDir(), "repo")
+	localClone := git.NewLocalClone(cloneDir, remoteDir, "", revision)
+	reader := git.NewLocalComposeReader(localClone)
+
+	store := desiredstate.NewStore()
+	queue := refresh.NewQueue()
+	cfg := config.Config{GitRepoURL: remoteDir, GitRevision: revision}
+	svc := refresh.NewService(cfg, store, queue, reader)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+
+	go svc.Start(ctx)
+
+	waitForRevision(t, store, firstHash)
+
+	if err := os.RemoveAll(cloneDir); err != nil {
+		t.Fatalf("failed to remove local clone: %v", err)
+	}
+	if err := os.WriteFile(cloneDir, []byte("corrupt"), 0644); err != nil {
+		t.Fatalf("failed to corrupt local clone: %v", err)
+	}
+
+	secondHash := addLocalCommit(t, remoteDir, "stack-a", "docker-compose.yml", "services:\n  web:\n    image: nginx:1.25-alpine\n")
+	_ = svc.RequestRefresh(refresh.TriggerManual)
+	waitForRevision(t, store, secondHash)
 }
 
 func TestDinD_ReconcileNoOpWhenInSync(t *testing.T) {
@@ -544,4 +703,84 @@ func safeResult(runs []reconcile.ReconciliationRun) string {
 		parts[i] = fmt.Sprintf("stack=%s result=%s error=%s", run.StackPath, run.Result, run.Error)
 	}
 	return strings.Join(parts, "; ")
+}
+
+func initLocalRepo(t *testing.T, dir, stack, composeFile, content string) (string, string) {
+	repo, err := gogit.PlainInit(dir, false)
+	if err != nil {
+		t.Fatalf("PlainInit failed: %v", err)
+	}
+
+	revision := "master"
+	if err := writeComposeFile(dir, stack, composeFile, content); err != nil {
+		t.Fatalf("writeComposeFile failed: %v", err)
+	}
+
+	hash := commitAll(t, repo, "initial")
+	if err := repo.Storer.SetReference(plumbing.NewHashReference(plumbing.NewBranchReferenceName(revision), hash)); err != nil {
+		t.Fatalf("set reference failed: %v", err)
+	}
+
+	return revision, hash.String()
+}
+
+func addLocalCommit(t *testing.T, repoPath, stack, composeFile, content string) string {
+	repo, err := gogit.PlainOpen(repoPath)
+	if err != nil {
+		t.Fatalf("PlainOpen failed: %v", err)
+	}
+	if err := writeComposeFile(repoPath, stack, composeFile, content); err != nil {
+		t.Fatalf("writeComposeFile failed: %v", err)
+	}
+
+	hash := commitAll(t, repo, "update")
+	return hash.String()
+}
+
+func writeComposeFile(repoPath, stack, composeFile, content string) error {
+	stackDir := filepath.Join(repoPath, stack)
+	if err := os.MkdirAll(stackDir, 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(stackDir, composeFile), []byte(content), 0644)
+}
+
+func commitAll(t *testing.T, repo *gogit.Repository, message string) plumbing.Hash {
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("Worktree failed: %v", err)
+	}
+	if _, err := wt.Add("."); err != nil {
+		t.Fatalf("Add failed: %v", err)
+	}
+	hash, err := wt.Commit(message, &gogit.CommitOptions{Author: testAuthor()})
+	if err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+	return hash
+}
+
+func testAuthor() *object.Signature {
+	return &object.Signature{
+		Name:  "Test",
+		Email: "test@example.com",
+		When:  time.Now(),
+	}
+}
+
+func waitForRevision(t *testing.T, store *desiredstate.Store, revision string) {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for revision %s", revision)
+		default:
+			snap := store.Get()
+			if snap != nil && snap.Revision == revision {
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
 }

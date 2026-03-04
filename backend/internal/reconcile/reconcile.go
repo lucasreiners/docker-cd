@@ -54,6 +54,8 @@ type ReconciliationRun struct {
 // Reconciler compares desired state with runtime state and applies changes.
 type Reconciler struct {
 	mu            sync.Mutex
+	cancelMu      sync.Mutex
+	cancelActive  context.CancelFunc
 	store         *desiredstate.Store
 	policy        ReconciliationPolicy
 	compose       ComposeRunner
@@ -92,14 +94,34 @@ func (r *Reconciler) Reconcile(ctx context.Context) []ReconciliationRun {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	ctx, cancel := context.WithCancel(ctx)
+	r.cancelMu.Lock()
+	r.cancelActive = cancel
+	r.cancelMu.Unlock()
+	defer func() {
+		r.cancelMu.Lock()
+		r.cancelActive = nil
+		r.cancelMu.Unlock()
+	}()
+
 	if !r.policy.Enabled {
 		log.Printf("[info] reconciliation disabled, skipping")
+		return nil
+	}
+
+	refresh := r.store.GetRefreshStatus()
+	if refresh == nil || refresh.RefreshStatus != desiredstate.RefreshStatusCompleted || refresh.UpdatesBlocked {
+		log.Printf("[info] refresh not completed or updates blocked, skipping reconciliation")
 		return nil
 	}
 
 	snap := r.store.Get()
 	if snap == nil {
 		log.Printf("[info] no desired state available, skipping reconciliation")
+		return nil
+	}
+	if ctx.Err() != nil {
+		log.Printf("[info] reconciliation canceled before runtime inspection")
 		return nil
 	}
 
@@ -142,6 +164,10 @@ func (r *Reconciler) Reconcile(ctx context.Context) []ReconciliationRun {
 	var runs []ReconciliationRun
 
 	for _, drift := range drifts {
+		if ctx.Err() != nil {
+			log.Printf("[info] reconciliation canceled before applying changes")
+			return runs
+		}
 		if !drift.NeedSync && !drift.NeedRemove {
 			continue
 		}
@@ -168,6 +194,16 @@ func (r *Reconciler) Reconcile(ctx context.Context) []ReconciliationRun {
 	}
 
 	return runs
+}
+
+// CancelActive requests cancellation of a running reconciliation.
+func (r *Reconciler) CancelActive() {
+	r.cancelMu.Lock()
+	cancel := r.cancelActive
+	r.cancelMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 }
 
 func (r *Reconciler) syncStack(ctx context.Context, drift DriftResult, snap *desiredstate.Snapshot) ReconciliationRun {

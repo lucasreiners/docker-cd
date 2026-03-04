@@ -15,6 +15,7 @@ import (
 	"github.com/lucasreiners/docker-cd/internal/config"
 	"github.com/lucasreiners/docker-cd/internal/desiredstate"
 	"github.com/lucasreiners/docker-cd/internal/docker"
+	"github.com/lucasreiners/docker-cd/internal/git"
 	"github.com/lucasreiners/docker-cd/internal/reconcile"
 	"github.com/lucasreiners/docker-cd/internal/refresh"
 	"github.com/lucasreiners/docker-cd/internal/render"
@@ -167,7 +168,10 @@ func RefreshStatusHandler(store *desiredstate.Store) gin.HandlerFunc {
 		snap := store.GetRefreshStatus()
 		if snap == nil {
 			snap = &desiredstate.Snapshot{
-				RefreshStatus: desiredstate.RefreshStatusQueued,
+				RefreshStatus:  desiredstate.RefreshStatusQueued,
+				UpdatesBlocked: true,
+				BlockedReason:  "refresh pending",
+				LocalPath:      git.DefaultLocalRepoPath,
 			}
 		}
 		c.JSON(http.StatusOK, snap)
