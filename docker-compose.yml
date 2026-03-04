@@ -1,6 +1,6 @@
 services:
   docker-cd:
-    image: ghcr.io/lucasreiners/docker-cd-backend:v0.1.0
+    image: ghcr.io/lucasreiners/docker-cd-backend:v0.3.1
     ports:
       - "8080:8080"
     volumes:
