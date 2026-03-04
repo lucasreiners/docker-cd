@@ -36,6 +36,9 @@ export interface RefreshSnapshot {
   refreshedAt: string
   refreshStatus: 'refreshing' | 'queued' | 'completed' | 'failed'
   refreshError?: string
+  updatesBlocked: boolean
+  blockedReason?: string
+  localPath?: string
 }
 
 declare global {

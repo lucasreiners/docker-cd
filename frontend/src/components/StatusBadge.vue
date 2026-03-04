@@ -75,12 +75,15 @@ type TagType = 'success' | 'warning' | 'error' | 'info' | 'default'
 
 const tagType = computed<TagType>(() => {
   switch (props.status) {
+    case 'completed':
     case 'synced':
       return 'success'
+    case 'refreshing':
     case 'syncing':
       return 'warning'
     case 'failed':
       return 'error'
+    case 'queued':
     case 'missing':
       return 'info'
     case 'deleting':
@@ -92,12 +95,15 @@ const tagType = computed<TagType>(() => {
 
 const statusIcon = computed<Component>(() => {
   switch (props.status) {
+    case 'completed':
     case 'synced':
       return CheckCircle
+    case 'refreshing':
     case 'syncing':
       return SyncIcon
     case 'failed':
       return ErrorIcon
+    case 'queued':
     case 'missing':
       return QuestionIcon
     case 'deleting':
