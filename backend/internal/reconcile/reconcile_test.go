@@ -472,7 +472,8 @@ func TestReconcile_ConcurrencyMutex(t *testing.T) {
 	store := desiredstate.NewStore()
 	composeContent := []byte("services:\n  web:\n    image: nginx\n")
 	store.Set(&desiredstate.Snapshot{
-		Revision: "rev1",
+		Revision:      "rev1",
+		RefreshStatus: desiredstate.RefreshStatusCompleted,
 		Stacks: []desiredstate.StackRecord{
 			{Path: "app1", ComposeFile: "docker-compose.yml", ComposeHash: "hash1", Status: desiredstate.StackSyncMissing, Content: composeContent},
 		},
