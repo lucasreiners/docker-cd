@@ -169,7 +169,7 @@ type pullCall struct {
 
 func (m *mockRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
 	// Check if it's a compose pull command
-	if name == "docker" && len(args) > 2 && args[0] == "compose" {
+	if name == "docker" && containsArgs(args, "compose", "pull") {
 		if m.pullDelay > 0 {
 			time.Sleep(m.pullDelay)
 		}
@@ -178,7 +178,7 @@ func (m *mockRunner) Run(ctx context.Context, name string, args ...string) ([]by
 	}
 
 	// Check if it's an image prune command
-	if name == "docker" && len(args) > 1 && args[0] == "image" && args[1] == "prune" {
+	if name == "docker" && containsArgs(args, "image", "prune") {
 		m.pruneCalls++
 		if m.pruneError != nil {
 			return nil, m.pruneError
@@ -191,6 +191,22 @@ func (m *mockRunner) Run(ctx context.Context, name string, args ...string) ([]by
 	}
 
 	return []byte{}, nil
+}
+
+func containsArgs(args []string, required ...string) bool {
+	for _, want := range required {
+		found := false
+		for _, arg := range args {
+			if arg == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
 
 // TestTriggerUpdateCycle_Success verifies manual trigger starts update cycle and completes

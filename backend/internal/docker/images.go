@@ -24,14 +24,25 @@ func (c *Client) PullImages(ctx context.Context, projectName, composeFile string
 	args := append(HostArgs(c.Socket),
 		"compose", "-p", projectName,
 		"-f", composeFile,
-		"pull", "--quiet")
+		"pull")
 
-	_, err := c.Runner.Run(ctx, "docker", args...)
+	out, err := c.Runner.Run(ctx, "docker", args...)
 	if err != nil {
+		output := strings.TrimSpace(string(out))
+		if output != "" {
+			return fmt.Errorf("docker compose pull failed: %s: %w", truncateOutput(output, 2000), err)
+		}
 		return fmt.Errorf("docker compose pull failed: %w", err)
 	}
 
 	return nil
+}
+
+func truncateOutput(output string, maxLen int) string {
+	if maxLen <= 0 || len(output) <= maxLen {
+		return output
+	}
+	return output[:maxLen] + "..."
 }
 
 // PruneImages removes all unused and dangling images system-wide.
