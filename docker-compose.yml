@@ -5,6 +5,7 @@ services:
       - "8080:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - repo-data:/repo
     environment:
       - PORT=8080
       - PROJECT_NAME=Docker-CD
@@ -21,6 +22,9 @@ services:
       - UPDATER_ENABLED=${UPDATER_ENABLED:-true}
       - UPDATER_CRON=${UPDATER_CRON:-0 3 * * *}
     restart: unless-stopped
+
+volumes:
+  repo-data:
 
   frontend:
     image: ghcr.io/lucasreiners/docker-cd-frontend:v0.1.0

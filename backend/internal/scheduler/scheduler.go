@@ -4,12 +4,15 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/lucasreiners/docker-cd/internal/config"
 	"github.com/lucasreiners/docker-cd/internal/desiredstate"
 	"github.com/lucasreiners/docker-cd/internal/docker"
+	"github.com/lucasreiners/docker-cd/internal/git"
 	"github.com/lucasreiners/docker-cd/internal/reconcile"
 	"github.com/robfig/cron/v3"
 )
@@ -21,6 +24,7 @@ type SchedulerService struct {
 	logger       *slog.Logger
 	mu           sync.Mutex
 	activeUpdate *UpdateCycle
+	activeCancel context.CancelFunc
 	stopChan     chan struct{}
 	store        *desiredstate.Store
 	dockerClient *docker.Client
@@ -140,6 +144,10 @@ func (s *SchedulerService) TriggerUpdateCycle(ctx context.Context) error {
 		return fmt.Errorf("scheduler is disabled")
 	}
 
+	if ok, reason := s.refreshReady(); !ok {
+		return fmt.Errorf("updates blocked: %s", reason)
+	}
+
 	s.logger.Info("TriggerUpdateCycle called")
 
 	s.mu.Lock()
@@ -163,8 +171,11 @@ func (s *SchedulerService) TriggerUpdateCycle(ctx context.Context) error {
 		"cycle_id", cycle.CycleID,
 		"start_time", cycle.StartTime)
 
+	cycleCtx, cancel := context.WithCancel(ctx)
+	s.activeCancel = cancel
+
 	// Trigger update cycle in background
-	go s.executeUpdateCycleManual(ctx, cycle)
+	go s.executeUpdateCycleManual(cycleCtx, cycle)
 	return nil
 }
 
@@ -191,6 +202,10 @@ func (s *SchedulerService) GetUpdateStatus() interface{} {
 // runUpdateCycle executes a full update cycle (T013)
 // Used by cron scheduler - can terminate existing cycles
 func (s *SchedulerService) runUpdateCycle(ctx context.Context) {
+	if ok, reason := s.refreshReady(); !ok {
+		s.logger.Warn("update cycle skipped - refresh not ready", "reason", reason)
+		return
+	}
 	s.mu.Lock()
 	// Terminate existing cycle if running (FR-020)
 	if s.activeUpdate != nil {
@@ -201,7 +216,9 @@ func (s *SchedulerService) runUpdateCycle(ctx context.Context) {
 
 	// Create new update cycle
 	cycle := NewUpdateCycle()
+	cycleCtx, cancel := context.WithCancel(ctx)
 	s.activeUpdate = cycle
+	s.activeCancel = cancel
 	s.mu.Unlock()
 
 	defer func() {
@@ -215,7 +232,25 @@ func (s *SchedulerService) runUpdateCycle(ctx context.Context) {
 	}()
 
 	// Execute update cycle
-	s.executeUpdateCycle(ctx, cycle)
+	s.executeUpdateCycle(cycleCtx, cycle)
+}
+
+func (s *SchedulerService) refreshReady() (bool, string) {
+	if s.store == nil {
+		return false, "refresh status unavailable"
+	}
+	status := s.store.GetRefreshStatus()
+	if status == nil || status.RefreshStatus != desiredstate.RefreshStatusCompleted {
+		return false, "refresh not completed"
+	}
+	if status.UpdatesBlocked {
+		reason := status.BlockedReason
+		if reason == "" {
+			reason = "updates blocked"
+		}
+		return false, reason
+	}
+	return true, ""
 }
 
 // executeUpdateCycleManual executes an update cycle from manual trigger
@@ -229,6 +264,7 @@ func (s *SchedulerService) executeUpdateCycleManual(ctx context.Context, cycle *
 			"cycle_id", cycle.CycleID)
 		s.mu.Lock()
 		s.activeUpdate = nil
+		s.activeCancel = nil
 		s.mu.Unlock()
 		s.logger.Info("activeUpdate cleared",
 			"cycle_id", cycle.CycleID)
@@ -245,6 +281,10 @@ func (s *SchedulerService) executeUpdateCycleManual(ctx context.Context, cycle *
 
 // executeUpdateCycle performs the actual update operations (T013-T019)
 func (s *SchedulerService) executeUpdateCycle(ctx context.Context, cycle *UpdateCycle) {
+	if ctx.Err() != nil {
+		s.logger.Warn("update cycle canceled before start", "cycle_id", cycle.CycleID)
+		return
+	}
 	// Log cycle start (T018)
 	s.logger.Info("update cycle started",
 		"cycle_id", cycle.CycleID,
@@ -278,6 +318,10 @@ func (s *SchedulerService) executeUpdateCycle(ctx context.Context, cycle *Update
 
 	// Process each stack sequentially (T014, FR-016)
 	for i, stack := range snap.Stacks {
+		if ctx.Err() != nil {
+			s.logger.Warn("update cycle canceled", "cycle_id", cycle.CycleID)
+			return
+		}
 		// Skip if stack is in error state (FR-014, T019)
 		if stack.Status == desiredstate.StackSyncFailed {
 			s.logger.Warn("skipping stack in failed state",
@@ -386,6 +430,16 @@ func (s *SchedulerService) executeUpdateCycle(ctx context.Context, cycle *Update
 	}
 }
 
+// CancelActiveUpdate requests cancellation of a running update cycle.
+func (s *SchedulerService) CancelActiveUpdate() {
+	s.mu.Lock()
+	cancel := s.activeCancel
+	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
 // updateStack updates a single stack (T014-T016)
 func (s *SchedulerService) updateStack(ctx context.Context, stack desiredstate.StackRecord) StackUpdateResult {
 	result := StackUpdateResult{
@@ -399,8 +453,12 @@ func (s *SchedulerService) updateStack(ctx context.Context, stack desiredstate.S
 	// TODO: Get image digests before pull (T015)
 	// This would require parsing the compose file to get image names
 
+	deployDir := strings.Trim(s.config.GitDeployDir, "/")
+	stackDir := filepath.Join(git.DefaultLocalRepoPath, deployDir, stack.Path)
+	composePath := filepath.Join(stackDir, stack.ComposeFile)
+
 	// Pull images (T014)
-	err := s.dockerClient.PullImages(ctx, result.ProjectName, stack.ComposeFile)
+	err := s.dockerClient.PullImages(ctx, result.ProjectName, composePath, stackDir)
 	result.PullEndTime = time.Now()
 
 	if err != nil {

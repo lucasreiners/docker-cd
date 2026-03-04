@@ -247,7 +247,7 @@ func TestPullImages_Success(t *testing.T) {
 	runner := &stubRunner{output: []byte("")}
 	client := docker.NewClient(runner, "/var/run/docker.sock")
 
-	err := client.PullImages(context.Background(), "myproject", "/path/to/compose.yml")
+	err := client.PullImages(context.Background(), "myproject", "/path/to/compose.yml", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -257,7 +257,7 @@ func TestPullImages_Error(t *testing.T) {
 	runner := &stubRunner{output: []byte("pull failed"), err: fmt.Errorf("exit status 1")}
 	client := docker.NewClient(runner, "/var/run/docker.sock")
 
-	err := client.PullImages(context.Background(), "myproject", "/path/to/compose.yml")
+	err := client.PullImages(context.Background(), "myproject", "/path/to/compose.yml", "")
 	if err == nil {
 		t.Fatal("expected error from pull failure, got nil")
 	}

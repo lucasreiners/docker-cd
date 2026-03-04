@@ -54,6 +54,16 @@ export GIT_REVISION="main"
 docker compose up --build
 ```
 
+### Local Clone Volume
+
+The service stores a local working copy of the repository at a fixed path inside
+the container: `/repo`. Ensure your compose files mount a persistent volume at
+that path so refresh, reconciliation, and updates can use the local clone.
+
+If a refresh fails, the last successful clone is kept, but reconciliation and
+updates are blocked until the next successful refresh. The UI surfaces this as
+`updatesBlocked` in refresh status.
+
 - Backend API: <http://localhost:8080>
 - Frontend UI: <http://localhost:8081>
 

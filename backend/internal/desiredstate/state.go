@@ -61,14 +61,17 @@ type StackRecord struct {
 
 // Snapshot represents the latest desired state loaded from Git.
 type Snapshot struct {
-	Revision      string        `json:"revision"`
-	CommitMessage string        `json:"commitMessage,omitempty"`
-	Ref           string        `json:"ref"`
-	RefType       string        `json:"refType"`
-	RefreshedAt   time.Time     `json:"refreshedAt"`
-	RefreshStatus RefreshStatus `json:"refreshStatus"`
-	RefreshError  string        `json:"refreshError,omitempty"`
-	Stacks        []StackRecord `json:"stacks"`
+	Revision       string        `json:"revision"`
+	CommitMessage  string        `json:"commitMessage,omitempty"`
+	Ref            string        `json:"ref"`
+	RefType        string        `json:"refType"`
+	RefreshedAt    time.Time     `json:"refreshedAt"`
+	RefreshStatus  RefreshStatus `json:"refreshStatus"`
+	RefreshError   string        `json:"refreshError,omitempty"`
+	UpdatesBlocked bool          `json:"updatesBlocked"`
+	BlockedReason  string        `json:"blockedReason,omitempty"`
+	LocalPath      string        `json:"localPath,omitempty"`
+	Stacks         []StackRecord `json:"stacks"`
 }
 
 // Store provides thread-safe access to the desired state snapshot.
@@ -119,6 +122,20 @@ func (s *Store) UpdateStatus(status RefreshStatus, refreshErr string) {
 	s.snapshot.RefreshError = refreshErr
 }
 
+// SetRefreshState updates refresh status alongside blocking metadata.
+func (s *Store) SetRefreshState(status RefreshStatus, refreshErr string, updatesBlocked bool, blockedReason, localPath string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.snapshot == nil {
+		s.snapshot = &Snapshot{}
+	}
+	s.snapshot.RefreshStatus = status
+	s.snapshot.RefreshError = refreshErr
+	s.snapshot.UpdatesBlocked = updatesBlocked
+	s.snapshot.BlockedReason = blockedReason
+	s.snapshot.LocalPath = localPath
+}
+
 // GetStacks returns a copy of the current stacks, or nil if no snapshot exists.
 func (s *Store) GetStacks() []StackRecord {
 	s.mu.RLock()
@@ -145,12 +162,15 @@ func (s *Store) GetRefreshStatus() *Snapshot {
 		return nil
 	}
 	return &Snapshot{
-		Revision:      s.snapshot.Revision,
-		CommitMessage: s.snapshot.CommitMessage,
-		Ref:           s.snapshot.Ref,
-		RefType:       s.snapshot.RefType,
-		RefreshedAt:   s.snapshot.RefreshedAt,
-		RefreshStatus: s.snapshot.RefreshStatus,
-		RefreshError:  s.snapshot.RefreshError,
+		Revision:       s.snapshot.Revision,
+		CommitMessage:  s.snapshot.CommitMessage,
+		Ref:            s.snapshot.Ref,
+		RefType:        s.snapshot.RefType,
+		RefreshedAt:    s.snapshot.RefreshedAt,
+		RefreshStatus:  s.snapshot.RefreshStatus,
+		RefreshError:   s.snapshot.RefreshError,
+		UpdatesBlocked: s.snapshot.UpdatesBlocked,
+		BlockedReason:  s.snapshot.BlockedReason,
+		LocalPath:      s.snapshot.LocalPath,
 	}
 }
