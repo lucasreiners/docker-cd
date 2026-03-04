@@ -23,9 +23,6 @@ services:
       - UPDATER_CRON=${UPDATER_CRON:-0 3 * * *}
     restart: unless-stopped
 
-volumes:
-  repo-data:
-
   frontend:
     image: ghcr.io/lucasreiners/docker-cd-frontend:v0.1.0
     ports:
@@ -35,3 +32,6 @@ volumes:
     depends_on:
       - docker-cd
     restart: unless-stopped
+
+volumes:
+  repo-data:

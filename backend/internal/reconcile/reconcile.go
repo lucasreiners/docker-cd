@@ -100,9 +100,7 @@ func (r *Reconciler) Reconcile(ctx context.Context) []ReconciliationRun {
 	r.cancelMu.Unlock()
 	defer func() {
 		r.cancelMu.Lock()
-		if r.cancelActive == cancel {
-			r.cancelActive = nil
-		}
+		r.cancelActive = nil
 		r.cancelMu.Unlock()
 	}()
 

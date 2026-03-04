@@ -9,7 +9,6 @@ import (
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 )
 
@@ -136,7 +135,7 @@ func (c *LocalClone) fetchRepo(ctx context.Context, repo *gogit.Repository) erro
 	opts := &gogit.FetchOptions{
 		RemoteName: "origin",
 		Force:      true,
-		Prune:      gogit.Prune,
+		Prune:      true,
 		Tags:       gogit.AllTags,
 	}
 	if c.Token != "" {

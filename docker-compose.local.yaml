@@ -25,9 +25,6 @@ services:
       - UPDATER_CRON=${UPDATER_CRON:-0 3 * * *}
     restart: unless-stopped
 
-volumes:
-  repo-data:
-
   frontend:
     build:
       context: ./frontend
@@ -39,3 +36,6 @@ volumes:
     depends_on:
       - docker-cd
     restart: unless-stopped
+
+volumes:
+  repo-data:

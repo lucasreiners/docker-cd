@@ -57,13 +57,6 @@
           >
             Updates blocked: {{ store.refreshStatus.blockedReason || 'refresh pending' }}
           </n-text>
-          <n-text
-            v-if="store.refreshStatus.localPath"
-            :depth="3"
-            style="font-size: 11px; margin-top: 2px; display: block"
-          >
-            Local clone: {{ store.refreshStatus.localPath }}
-          </n-text>
         </div>
         <n-button
           size="small"
