@@ -340,3 +340,79 @@ func TestGetImageDigest_Error(t *testing.T) {
 		t.Errorf("expected error to contain 'docker inspect failed', got %q", err.Error())
 	}
 }
+
+// GetComposeImages tests
+
+func TestGetComposeImages_Success(t *testing.T) {
+	output := "nginx:latest\nredis:7-alpine\npostgres:16\n"
+	runner := &stubRunner{output: []byte(output)}
+	client := docker.NewClient(runner, "/var/run/docker.sock")
+
+	images, err := client.GetComposeImages(context.Background(), "myproject", "/path/to/compose.yml", "/work")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(images) != 3 {
+		t.Fatalf("expected 3 images, got %d", len(images))
+	}
+	expected := []string{"nginx:latest", "redis:7-alpine", "postgres:16"}
+	for i, img := range images {
+		if img != expected[i] {
+			t.Errorf("image[%d]: expected %q, got %q", i, expected[i], img)
+		}
+	}
+}
+
+func TestGetComposeImages_EmptyOutput(t *testing.T) {
+	runner := &stubRunner{output: []byte("")}
+	client := docker.NewClient(runner, "/var/run/docker.sock")
+
+	images, err := client.GetComposeImages(context.Background(), "myproject", "/path/to/compose.yml", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(images) != 0 {
+		t.Errorf("expected 0 images, got %d", len(images))
+	}
+}
+
+func TestGetComposeImages_Error(t *testing.T) {
+	runner := &stubRunner{output: []byte("config failed"), err: fmt.Errorf("exit status 1")}
+	client := docker.NewClient(runner, "/var/run/docker.sock")
+
+	_, err := client.GetComposeImages(context.Background(), "myproject", "/path/to/compose.yml", "")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "docker compose config --images failed") {
+		t.Errorf("expected error to contain 'docker compose config --images failed', got %q", err.Error())
+	}
+}
+
+func TestGetComposeImages_WithWorkDir(t *testing.T) {
+	var capturedArgs []string
+	runner := &argCapturingRunner{output: []byte("nginx:latest\n"), capture: func(args []string) { capturedArgs = args }}
+	client := docker.NewClient(runner, "/var/run/docker.sock")
+
+	_, err := client.GetComposeImages(context.Background(), "myproject", "/path/to/compose.yml", "/my/workdir")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Verify --project-directory was passed
+	if !strings.Contains(strings.Join(capturedArgs, " "), "--project-directory") {
+		t.Error("expected --project-directory in args when workDir is set")
+	}
+}
+
+// argCapturingRunner is a CommandRunner that captures the args passed to Run.
+type argCapturingRunner struct {
+	output  []byte
+	capture func(args []string)
+}
+
+func (r *argCapturingRunner) Run(_ context.Context, _ string, args ...string) ([]byte, error) {
+	if r.capture != nil {
+		r.capture(args)
+	}
+	return r.output, nil
+}

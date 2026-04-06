@@ -5,6 +5,8 @@ package integration_test
 import (
 	"context"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -67,7 +69,7 @@ func TestDinD_ReconcileComposeUp(t *testing.T) {
 	client := docker.NewClient(runner, env.DockerHost)
 	inspector := reconcile.NewDockerContainerInspector(client)
 
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), composeRunner, inspector, reconcile.NewAckStore(), "")
+	r := newDindReconciler(store, reconcile.DefaultPolicy(), composeRunner, inspector, reconcile.NewAckStore(), "")
 	runs := r.Reconcile(context.Background())
 
 	if len(runs) != 1 {
@@ -140,7 +142,7 @@ func TestDinD_ReconcileBlockedUntilRefreshComplete(t *testing.T) {
 	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
 	client := docker.NewClient(runner, env.DockerHost)
 	inspector := reconcile.NewDockerContainerInspector(client)
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), composeRunner, inspector, reconcile.NewAckStore(), "")
+	r := newDindReconciler(store, reconcile.DefaultPolicy(), composeRunner, inspector, reconcile.NewAckStore(), "")
 
 	runs := r.Reconcile(context.Background())
 	if len(runs) != 0 {
@@ -289,7 +291,7 @@ func TestDinD_ReconcileNoOpWhenInSync(t *testing.T) {
 	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
 	client := docker.NewClient(runner, env.DockerHost)
 	inspector := reconcile.NewDockerContainerInspector(client)
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), composeRunner, inspector, reconcile.NewAckStore(), "")
+	r := newDindReconciler(store, reconcile.DefaultPolicy(), composeRunner, inspector, reconcile.NewAckStore(), "")
 
 	runs := r.Reconcile(context.Background())
 	if len(runs) != 1 || runs[0].Result != "success" {
@@ -333,7 +335,7 @@ func TestDinD_DriftDetectionRevisionChange(t *testing.T) {
 	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
 	client := docker.NewClient(runner, env.DockerHost)
 	inspector := reconcile.NewDockerContainerInspector(client)
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), composeRunner, inspector, reconcile.NewAckStore(), "")
+	r := newDindReconciler(store, reconcile.DefaultPolicy(), composeRunner, inspector, reconcile.NewAckStore(), "")
 
 	runs := r.Reconcile(context.Background())
 	if len(runs) != 1 || runs[0].Result != "success" {
@@ -406,7 +408,7 @@ func TestDinD_StackRemoval(t *testing.T) {
 	inspector := reconcile.NewDockerContainerInspector(client)
 	policy := reconcile.DefaultPolicy()
 	policy.RemoveEnabled = true
-	r := reconcile.NewReconciler(store, policy, composeRunner, inspector, reconcile.NewAckStore(), "")
+	r := newDindReconciler(store, policy, composeRunner, inspector, reconcile.NewAckStore(), "")
 
 	runs := r.Reconcile(context.Background())
 	if len(runs) != 1 || runs[0].Result != "success" {
@@ -465,7 +467,7 @@ func TestDinD_MultiServiceStack(t *testing.T) {
 	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
 	client := docker.NewClient(runner, env.DockerHost)
 	inspector := reconcile.NewDockerContainerInspector(client)
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), composeRunner, inspector, reconcile.NewAckStore(), "")
+	r := newDindReconciler(store, reconcile.DefaultPolicy(), composeRunner, inspector, reconcile.NewAckStore(), "")
 
 	runs := r.Reconcile(context.Background())
 	if len(runs) != 1 || runs[0].Result != "success" {
@@ -515,7 +517,7 @@ func TestDinD_ComposeHashDrift(t *testing.T) {
 	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
 	client := docker.NewClient(runner, env.DockerHost)
 	inspector := reconcile.NewDockerContainerInspector(client)
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), composeRunner, inspector, reconcile.NewAckStore(), "")
+	r := newDindReconciler(store, reconcile.DefaultPolicy(), composeRunner, inspector, reconcile.NewAckStore(), "")
 
 	runs := r.Reconcile(context.Background())
 	if len(runs) != 1 || runs[0].Result != "success" {
@@ -577,7 +579,7 @@ func TestDinD_FlagPolicyRequiresAck(t *testing.T) {
 	client := docker.NewClient(runner, env.DockerHost)
 	inspector := reconcile.NewDockerContainerInspector(client)
 	ackStore := reconcile.NewAckStore()
-	r := reconcile.NewReconciler(store, policy, composeRunner, inspector, ackStore, "")
+	r := newDindReconciler(store, policy, composeRunner, inspector, ackStore, "")
 
 	runs := r.Reconcile(context.Background())
 	if len(runs) != 0 {
@@ -626,7 +628,7 @@ func TestDinD_FourSpaceIndentLabels(t *testing.T) {
 	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
 	client := docker.NewClient(runner, env.DockerHost)
 	inspector := reconcile.NewDockerContainerInspector(client)
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), composeRunner, inspector, reconcile.NewAckStore(), "")
+	r := newDindReconciler(store, reconcile.DefaultPolicy(), composeRunner, inspector, reconcile.NewAckStore(), "")
 
 	// First reconcile: should deploy.
 	runs := r.Reconcile(context.Background())
@@ -664,6 +666,24 @@ func TestDinD_FourSpaceIndentLabels(t *testing.T) {
 }
 
 // --- Helpers ---
+
+// newDindReconciler constructs a Reconciler with the full 8-arg signature used in integration tests.
+func newDindReconciler(
+	store *desiredstate.Store,
+	policy reconcile.ReconciliationPolicy,
+	composeRunner reconcile.ComposeRunner,
+	inspector reconcile.ContainerInspector,
+	ackStore *reconcile.AckStore,
+	deployDir string,
+) *reconcile.Reconciler {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	return reconcile.NewReconciler(
+		store, policy, composeRunner, inspector, ackStore, deployDir,
+		reconcile.NewDriftDetector("", logger),
+		reconcile.NewStateManager(store, composeRunner, nil, logger),
+		logger,
+	)
+}
 
 func waitForContainers(t *testing.T, runner *dindRunner, min int, timeout time.Duration) {
 	t.Helper()

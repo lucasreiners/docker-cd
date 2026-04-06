@@ -1,3 +1,6 @@
+# OpenWeave
+.weave
+
 # Go build artifacts
 /docker-cd
 backend/docker-cd

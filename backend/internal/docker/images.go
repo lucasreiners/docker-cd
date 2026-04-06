@@ -16,6 +16,9 @@ type ImageOperations interface {
 
 	// GetImageDigest returns the digest of an image
 	GetImageDigest(ctx context.Context, imageName string) (string, error)
+
+	// GetComposeImages returns the list of images referenced by a compose file.
+	GetComposeImages(ctx context.Context, projectName, composeFile, workDir string) ([]string, error)
 }
 
 // PullImages pulls all images defined in a compose file.
@@ -44,6 +47,34 @@ func truncateOutput(output string, maxLen int) string {
 		return output
 	}
 	return output[:maxLen] + "..."
+}
+
+// GetComposeImages returns the list of images referenced by a compose file.
+// Uses "docker compose config --images" to extract image names.
+func (c *Client) GetComposeImages(ctx context.Context, projectName, composeFile, workDir string) ([]string, error) {
+	args := append(HostArgs(c.Socket), "compose", "-p", projectName)
+	if workDir != "" {
+		args = append(args, "--project-directory", workDir)
+	}
+	args = append(args, "-f", composeFile, "config", "--images")
+
+	out, err := c.Runner.Run(ctx, "docker", args...)
+	if err != nil {
+		output := strings.TrimSpace(string(out))
+		if output != "" {
+			return nil, fmt.Errorf("docker compose config --images failed: %s: %w", truncateOutput(output, 2000), err)
+		}
+		return nil, fmt.Errorf("docker compose config --images failed: %w", err)
+	}
+
+	var images []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			images = append(images, line)
+		}
+	}
+	return images, nil
 }
 
 // PruneImages removes all unused and dangling images system-wide.
