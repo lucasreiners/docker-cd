@@ -3,7 +3,7 @@ package reconcile
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -64,6 +64,7 @@ type Reconciler struct {
 	deployDir     string
 	driftDetector *DriftDetector
 	stateManager  *StateManager
+	logger        *slog.Logger
 }
 
 // NewReconciler creates a Reconciler.
@@ -76,6 +77,7 @@ func NewReconciler(
 	deployDir string,
 	driftDetector *DriftDetector,
 	stateManager *StateManager,
+	logger *slog.Logger,
 ) *Reconciler {
 	return &Reconciler{
 		store:         store,
@@ -86,6 +88,7 @@ func NewReconciler(
 		deployDir:     deployDir,
 		driftDetector: driftDetector,
 		stateManager:  stateManager,
+		logger:        logger,
 	}
 }
 
@@ -105,35 +108,35 @@ func (r *Reconciler) Reconcile(ctx context.Context) []ReconciliationRun {
 	}()
 
 	if !r.policy.Enabled {
-		log.Printf("[info] reconciliation disabled, skipping")
+		r.logger.Info("reconciliation disabled, skipping")
 		return nil
 	}
 
 	refresh := r.store.GetRefreshStatus()
 	if refresh == nil || refresh.RefreshStatus != desiredstate.RefreshStatusCompleted || refresh.UpdatesBlocked {
-		log.Printf("[info] refresh not completed or updates blocked, skipping reconciliation")
+		r.logger.Info("refresh not completed or updates blocked, skipping reconciliation")
 		return nil
 	}
 
 	snap := r.store.Get()
 	if snap == nil {
-		log.Printf("[info] no desired state available, skipping reconciliation")
+		r.logger.Info("no desired state available, skipping reconciliation")
 		return nil
 	}
 	if ctx.Err() != nil {
-		log.Printf("[info] reconciliation canceled before runtime inspection")
+		r.logger.Info("reconciliation canceled before runtime inspection")
 		return nil
 	}
 
 	runtime, err := r.inspector.GetStackLabels(ctx)
 	if err != nil {
-		log.Printf("[error] failed to inspect runtime state: %v", err)
+		r.logger.Error("failed to inspect runtime state", "error", err)
 		return nil
 	}
 
-	log.Printf("[debug] runtime labels found for %d stack(s)", len(runtime))
+	r.logger.Debug("runtime labels found", "stack_count", len(runtime))
 	for path := range runtime {
-		log.Printf("[debug]   runtime stack: %s", path)
+		r.logger.Debug("runtime stack discovered", "stack_path", path)
 	}
 
 	drifts := r.driftDetector.DetectChanges(ctx, snap.Stacks, runtime, r.policy.RemoveEnabled)
@@ -151,7 +154,7 @@ func (r *Reconciler) Reconcile(ctx context.Context) []ReconciliationRun {
 		// Find the corresponding store record
 		for _, st := range snap.Stacks {
 			if st.Path == drift.Path && st.Status != desiredstate.StackSyncSynced {
-				log.Printf("[info] correcting store status for in-sync stack %s (%s → synced)", drift.Path, st.Status)
+				r.logger.Info("correcting store status for in-sync stack", "stack_path", drift.Path, "old_status", st.Status)
 				r.stateManager.MarkSynced(drift.Path, rt.DesiredRevision, rt.DesiredCommitMessage, rt.DesiredComposeHash, rt.SyncedAt)
 				break
 			}
@@ -165,7 +168,7 @@ func (r *Reconciler) Reconcile(ctx context.Context) []ReconciliationRun {
 
 	for _, drift := range drifts {
 		if ctx.Err() != nil {
-			log.Printf("[info] reconciliation canceled before applying changes")
+			r.logger.Info("reconciliation canceled before applying changes")
 			return runs
 		}
 		if !drift.NeedSync && !drift.NeedRemove {
@@ -181,7 +184,7 @@ func (r *Reconciler) Reconcile(ctx context.Context) []ReconciliationRun {
 		// Check drift policy
 		if r.policy.DriftPolicy == "flag" {
 			if !r.ackStore.IsAcknowledged(drift.Path) {
-				log.Printf("[info] stack %s has drift but policy is 'flag' and not acknowledged, skipping", drift.Path)
+				r.logger.Info("stack has drift but policy is 'flag' and not acknowledged, skipping", "stack_path", drift.Path)
 				r.stateManager.UpdateStatus(drift.Path, desiredstate.StackSyncFailed, "", "drift detected, awaiting acknowledgement")
 				continue
 			}
@@ -204,6 +207,29 @@ func (r *Reconciler) CancelActive() {
 	if cancel != nil {
 		cancel()
 	}
+}
+
+// ReconcileStack performs a targeted reconciliation of a single stack.
+// It bypasses drift detection entirely — always syncs the specified stack.
+// After an image pull, docker compose up -d natively detects digest changes
+// and recreates only the affected containers.
+func (r *Reconciler) ReconcileStack(ctx context.Context, stackPath string) ReconciliationRun {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	snap := r.store.Get()
+	if snap == nil {
+		return ReconciliationRun{StackPath: stackPath, Result: "failed", Error: "no desired state"}
+	}
+
+	// Build a synthetic DriftResult — always needs sync
+	drift := DriftResult{
+		Path:     stackPath,
+		NeedSync: true,
+		Reason:   "targeted reconciliation after image pull",
+	}
+
+	return r.syncStack(ctx, drift, snap)
 }
 
 func (r *Reconciler) syncStack(ctx context.Context, drift DriftResult, snap *desiredstate.Snapshot) ReconciliationRun {
@@ -230,7 +256,7 @@ func (r *Reconciler) syncStack(ctx context.Context, drift DriftResult, snap *des
 
 	run.DesiredHash = stack.ComposeHash
 
-	log.Printf("[info] reconciling stack %s (reason: %s)", drift.Path, drift.Reason)
+	r.logger.Info("reconciling stack", "stack_path", drift.Path, "reason", drift.Reason)
 
 	// Update status to syncing
 	r.stateManager.UpdateStatus(drift.Path, desiredstate.StackSyncSyncing, "", "")
@@ -242,7 +268,7 @@ func (r *Reconciler) syncStack(ctx context.Context, drift DriftResult, snap *des
 	commitMessage := r.getCommitMessage(snap)
 	serviceNames := extractServiceNames(stack.Content)
 	if len(serviceNames) == 0 {
-		log.Printf("[warn] no service names extracted from compose file for stack %s — labels will not be applied", drift.Path)
+		r.logger.Warn("no service names extracted from compose file — labels will not be applied", "stack_path", drift.Path)
 	}
 	overrideContent := generateLabelOverride(drift.Path, snap.Revision, commitMessage, stack.ComposeHash, serviceNames)
 
@@ -267,14 +293,14 @@ func (r *Reconciler) syncStack(ctx context.Context, drift DriftResult, snap *des
 		run.Result = "failed"
 		run.Error = fmt.Sprintf("compose up failed: %v", err)
 		run.FinishedAt = time.Now()
-		log.Printf("[error] reconcile failed for stack %s: %v", drift.Path, err)
+		r.logger.Error("reconcile failed", "stack_path", drift.Path, "error", err)
 		r.stateManager.UpdateStatus(drift.Path, desiredstate.StackSyncFailed, "", truncateError(run.Error))
 		return run
 	}
 
 	run.Result = "success"
 	run.FinishedAt = time.Now()
-	log.Printf("[info] reconcile succeeded for stack %s", drift.Path)
+	r.logger.Info("reconcile succeeded", "stack_path", drift.Path)
 
 	// Update status to synced with metadata
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -299,7 +325,7 @@ func (r *Reconciler) removeStack(ctx context.Context, drift DriftResult, snap *d
 		return run
 	}
 
-	log.Printf("[info] removing stack %s (reason: %s)", drift.Path, drift.Reason)
+	r.logger.Info("removing stack", "stack_path", drift.Path, "reason", drift.Reason)
 
 	r.stateManager.UpdateStatus(drift.Path, desiredstate.StackSyncDeleting, "", "")
 
@@ -312,14 +338,14 @@ func (r *Reconciler) removeStack(ctx context.Context, drift DriftResult, snap *d
 		run.Result = "failed"
 		run.Error = fmt.Sprintf("compose down failed: %v", err)
 		run.FinishedAt = time.Now()
-		log.Printf("[error] removal failed for stack %s: %v", drift.Path, err)
+		r.logger.Error("removal failed", "stack_path", drift.Path, "error", err)
 		r.stateManager.UpdateStatus(drift.Path, desiredstate.StackSyncFailed, "", truncateError(run.Error))
 		return run
 	}
 
 	run.Result = "success"
 	run.FinishedAt = time.Now()
-	log.Printf("[info] removal succeeded for stack %s", drift.Path)
+	r.logger.Info("removal succeeded", "stack_path", drift.Path)
 
 	// Mark stack as missing after removal
 	r.stateManager.UpdateStatus(drift.Path, desiredstate.StackSyncMissing, "", "")

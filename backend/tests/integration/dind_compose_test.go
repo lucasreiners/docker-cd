@@ -39,7 +39,7 @@ func TestDinD_ComposeUp_WritesFilesAndApplies(t *testing.T) {
 		t.Errorf("compose path should be absolute, got %q", composeFile)
 	}
 
-	err = composeRunner.ComposeUp(context.Background(), "mystack", composeFile, overrideFile, filepath.Dir(composeFile))
+	err = composeRunner.ComposeUp(context.Background(), "mystack", composeFile, overrideFile, filepath.Dir(composeFile), false)
 	if err != nil {
 		t.Fatalf("compose up failed: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestDinD_ComposeDown_RemovesContainers(t *testing.T) {
 	}
 	defer cleanup()
 
-	err = composeRunner.ComposeUp(context.Background(), "downstack", composeFile, overrideFile, filepath.Dir(composeFile))
+	err = composeRunner.ComposeUp(context.Background(), "downstack", composeFile, overrideFile, filepath.Dir(composeFile), false)
 	if err != nil {
 		t.Fatalf("compose up failed: %v", err)
 	}
@@ -366,7 +366,7 @@ func TestDinD_LabelRoundTrip(t *testing.T) {
 	defer cleanup()
 
 	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
-	err = composeRunner.ComposeUp(context.Background(), "labelrt", composeFile, overrideFile, filepath.Dir(composeFile))
+	err = composeRunner.ComposeUp(context.Background(), "labelrt", composeFile, overrideFile, filepath.Dir(composeFile), false)
 	if err != nil {
 		t.Fatalf("compose up failed: %v", err)
 	}
@@ -418,7 +418,7 @@ func TestDinD_MapLabelsToMetadata_RealLabels(t *testing.T) {
 	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
 	client := docker.NewClient(runner, env.DockerHost)
 	inspector := reconcile.NewDockerContainerInspector(client)
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), composeRunner, inspector, reconcile.NewAckStore(), "")
+	r := newDindReconciler(store, reconcile.DefaultPolicy(), composeRunner, inspector, reconcile.NewAckStore(), "")
 
 	runs := r.Reconcile(context.Background())
 	if len(runs) != 1 || runs[0].Result != "success" {

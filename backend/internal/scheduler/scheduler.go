@@ -30,6 +30,7 @@ type SchedulerService struct {
 	dockerClient *docker.Client
 	reconciler   *reconcile.Reconciler
 	broadcaster  *desiredstate.Broadcaster
+	repoPath     string // base path for local repo checkout; defaults to git.DefaultLocalRepoPath
 }
 
 // NewSchedulerService creates a new scheduler service.
@@ -64,7 +65,15 @@ func NewSchedulerService(
 		dockerClient: dockerClient,
 		reconciler:   reconciler,
 		broadcaster:  broadcaster,
+		repoPath:     git.DefaultLocalRepoPath,
 	}, nil
+}
+
+// SetRepoPath overrides the base repo path used to locate compose files during
+// update cycles. This is primarily useful for testing, where /repo is not
+// writable. In production the default (git.DefaultLocalRepoPath) is used.
+func (s *SchedulerService) SetRepoPath(path string) {
+	s.repoPath = path
 }
 
 // Start begins the scheduler service lifecycle.
@@ -450,15 +459,41 @@ func (s *SchedulerService) updateStack(ctx context.Context, stack desiredstate.S
 
 	s.logger.Info("updating stack", "stack", stack.Path)
 
-	// TODO: Get image digests before pull (T015)
-	// This would require parsing the compose file to get image names
-
 	deployDir := strings.Trim(s.config.GitDeployDir, "/")
-	stackDir := filepath.Join(git.DefaultLocalRepoPath, deployDir, stack.Path)
+	stackDir := filepath.Join(s.repoPath, deployDir, stack.Path)
 	composePath := filepath.Join(stackDir, stack.ComposeFile)
 
+	// Get list of images in compose file (T015)
+	images, err := s.dockerClient.GetComposeImages(ctx, result.ProjectName, composePath, stackDir)
+	if err != nil {
+		s.logger.Warn("failed to list compose images, will reconcile unconditionally",
+			"stack", stack.Path,
+			"error", err)
+		images = nil // proceed without digest comparison
+	}
+
+	// Get image digests before pull (T015)
+	digestsBefore := make(map[string]string, len(images))
+	for _, img := range images {
+		digest, err := s.dockerClient.GetImageDigest(ctx, img)
+		if err != nil {
+			s.logger.Debug("failed to get pre-pull digest",
+				"stack", stack.Path,
+				"image", img,
+				"error", err)
+			// Mark as unknown — will force reconcile later
+			digestsBefore[img] = ""
+		} else {
+			digestsBefore[img] = digest
+			s.logger.Debug("pre-pull digest",
+				"stack", stack.Path,
+				"image", img,
+				"digest", digest)
+		}
+	}
+
 	// Pull images (T014)
-	err := s.dockerClient.PullImages(ctx, result.ProjectName, composePath, stackDir)
+	err = s.dockerClient.PullImages(ctx, result.ProjectName, composePath, stackDir)
 	result.PullEndTime = time.Now()
 
 	if err != nil {
@@ -472,36 +507,98 @@ func (s *SchedulerService) updateStack(ctx context.Context, stack desiredstate.S
 
 	s.logger.Info("images pulled", "stack", stack.Path)
 
-	// TODO: Get image digests after pull and compare (T015)
-	// For MVP, always trigger reconciliation after pull
-	// In a full implementation, we'd compare digests to detect changes
+	// Get image digests after pull and compare (T015)
+	anyChanged := false
+	digestComparisonFailed := false
 
-	// Trigger reconciliation (T016)
-	runs := s.reconciler.Reconcile(ctx)
-	found := false
-	for _, run := range runs {
-		if run.StackPath == stack.Path {
-			found = true
-			result.ReconcileTriggered = true
-			if run.Result == "success" {
-				result.Success = true
-				s.logger.Info("stack reconciled",
-					"stack", stack.Path,
-					"result", run.Result)
-			} else {
-				result.Success = false
-				result.Error = fmt.Errorf("reconcile failed: %s", run.Error)
-				s.logger.Error("stack reconcile failed",
-					"stack", stack.Path,
-					"error", run.Error)
-			}
-			break
+	for _, img := range images {
+		pullResult := ImagePullResult{
+			ImageName:      img,
+			PreviousDigest: digestsBefore[img],
+			Success:        true,
 		}
+
+		newDigest, err := s.dockerClient.GetImageDigest(ctx, img)
+		if err != nil {
+			s.logger.Warn("failed to get post-pull digest, assuming changed",
+				"stack", stack.Path,
+				"image", img,
+				"error", err)
+			pullResult.Changed = true
+			digestComparisonFailed = true
+			anyChanged = true
+		} else {
+			pullResult.NewDigest = newDigest
+			if digestsBefore[img] == "" {
+				// Pre-pull digest was unknown — assume changed
+				pullResult.Changed = true
+				anyChanged = true
+				s.logger.Info("image updated (pre-pull digest unknown)",
+					"stack", stack.Path,
+					"image", img,
+					"new_digest", newDigest)
+			} else if digestsBefore[img] != newDigest {
+				pullResult.Changed = true
+				anyChanged = true
+				s.logger.Info("image updated",
+					"stack", stack.Path,
+					"image", img,
+					"old_digest", digestsBefore[img],
+					"new_digest", newDigest)
+			} else {
+				pullResult.Changed = false
+				s.logger.Debug("image unchanged",
+					"stack", stack.Path,
+					"image", img,
+					"digest", newDigest)
+			}
+		}
+
+		result.ImagesPulled = append(result.ImagesPulled, pullResult)
 	}
 
-	// If no matching reconciliation run (reconciler disabled or no match), treat as success since pull succeeded
-	if !found {
+	// If we couldn't get images list, or digest comparison failed, reconcile unconditionally
+	if len(images) == 0 || digestComparisonFailed {
+		s.logger.Info("reconciling unconditionally (digest comparison unavailable)",
+			"stack", stack.Path)
+		anyChanged = true
+	}
+
+	if !anyChanged {
+		s.logger.Info("no images changed, skipping reconciliation",
+			"stack", stack.Path,
+			"images_checked", len(images))
 		result.Success = true
+		result.ReconcileTriggered = false
+		return result
+	}
+
+	// Reconcile — only when images actually changed (T016)
+	changedCount := 0
+	for _, pr := range result.ImagesPulled {
+		if pr.Changed {
+			changedCount++
+		}
+	}
+	s.logger.Info("images changed, triggering reconciliation",
+		"stack", stack.Path,
+		"images_changed", changedCount,
+		"images_total", len(result.ImagesPulled))
+
+	run := s.reconciler.ReconcileStack(ctx, stack.Path)
+	result.ReconcileTriggered = true
+	if run.Result == "success" {
+		result.Success = true
+		s.logger.Info("stack reconciled after image pull",
+			"stack", stack.Path,
+			"result", run.Result,
+			"images_changed", changedCount)
+	} else {
+		result.Success = false
+		result.Error = fmt.Errorf("reconcile failed: %s", run.Error)
+		s.logger.Error("stack reconcile failed after image pull",
+			"stack", stack.Path,
+			"error", run.Error)
 	}
 
 	return result

@@ -253,7 +253,7 @@ func TestReconcile_DriftedStack_Synced(t *testing.T) {
 	compose := &stubComposeRunner{}
 	inspector := &stubInspector{labels: map[string]reconcile.StackSyncMetadata{}}
 
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose))
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
 	runs := r.Reconcile(context.Background())
 
 	if len(runs) != 1 {
@@ -302,7 +302,7 @@ func TestReconcile_AlreadySynced_NoOp(t *testing.T) {
 		},
 	}
 
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose))
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
 	runs := r.Reconcile(context.Background())
 
 	if len(runs) != 0 {
@@ -326,7 +326,7 @@ func TestReconcile_Disabled(t *testing.T) {
 	compose := &stubComposeRunner{}
 	inspector := &stubInspector{labels: map[string]reconcile.StackSyncMetadata{}}
 
-	r := reconcile.NewReconciler(store, policy, compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose))
+	r := reconcile.NewReconciler(store, policy, compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
 	runs := r.Reconcile(context.Background())
 
 	if runs != nil {
@@ -348,7 +348,7 @@ func TestReconcile_ComposeUpFailure(t *testing.T) {
 	compose := &stubComposeRunner{upErr: fmt.Errorf("image not found")}
 	inspector := &stubInspector{labels: map[string]reconcile.StackSyncMetadata{}}
 
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose))
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
 	runs := r.Reconcile(context.Background())
 
 	if len(runs) != 1 {
@@ -393,7 +393,7 @@ func TestReconcile_DriftPolicy_Flag_NoAck(t *testing.T) {
 	compose := &stubComposeRunner{}
 	inspector := &stubInspector{labels: map[string]reconcile.StackSyncMetadata{}}
 
-	r := reconcile.NewReconciler(store, policy, compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose))
+	r := reconcile.NewReconciler(store, policy, compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
 	runs := r.Reconcile(context.Background())
 
 	// No runs should execute without acknowledgement
@@ -424,7 +424,7 @@ func TestReconcile_DriftPolicy_Flag_WithAck(t *testing.T) {
 	ackStore := reconcile.NewAckStore()
 	ackStore.Acknowledge("app1")
 
-	r := reconcile.NewReconciler(store, policy, compose, inspector, ackStore, "", newTestDriftDetector(""), newTestStateManager(store, compose))
+	r := reconcile.NewReconciler(store, policy, compose, inspector, ackStore, "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
 	runs := r.Reconcile(context.Background())
 
 	if len(runs) != 1 {
@@ -454,7 +454,7 @@ func TestReconcile_DriftPolicy_Revert(t *testing.T) {
 	compose := &stubComposeRunner{}
 	inspector := &stubInspector{labels: map[string]reconcile.StackSyncMetadata{}}
 
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose))
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
 	runs := r.Reconcile(context.Background())
 
 	// Revert mode should auto-reconcile without ack
@@ -483,7 +483,7 @@ func TestReconcile_ConcurrencyMutex(t *testing.T) {
 	// Inspector that updates after first sync (simulating containers getting labels)
 	inspector := &dynamicInspector{}
 
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose))
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
 
 	// Run reconcile — first should sync
 	runs1 := r.Reconcile(context.Background())
@@ -519,7 +519,7 @@ func TestReconcile_CachePreservedOnFailure(t *testing.T) {
 	compose := &stubComposeRunner{upErr: fmt.Errorf("deploy failed")}
 	inspector := &stubInspector{labels: map[string]reconcile.StackSyncMetadata{}}
 
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose))
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
 	r.Reconcile(context.Background())
 
 	// Desired state cache should be intact
@@ -572,7 +572,7 @@ func TestReconciliationRun_Timestamps(t *testing.T) {
 	inspector := &stubInspector{labels: map[string]reconcile.StackSyncMetadata{}}
 
 	before := time.Now()
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose))
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
 	runs := r.Reconcile(context.Background())
 	after := time.Now()
 
@@ -605,7 +605,7 @@ func TestReconcile_MultipleStacks_Sequential(t *testing.T) {
 	compose := &stubComposeRunner{}
 	inspector := &stubInspector{labels: map[string]reconcile.StackSyncMetadata{}}
 
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose))
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
 	runs := r.Reconcile(context.Background())
 
 	if len(runs) != 3 {
@@ -643,7 +643,7 @@ func TestReconcile_RemoveStack(t *testing.T) {
 		},
 	}
 
-	r := reconcile.NewReconciler(store, policy, compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose))
+	r := reconcile.NewReconciler(store, policy, compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
 	runs := r.Reconcile(context.Background())
 
 	if len(runs) != 1 {
@@ -674,7 +674,7 @@ func TestReconcile_RemoveDisabled_Skips(t *testing.T) {
 		},
 	}
 
-	r := reconcile.NewReconciler(store, policy, compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose))
+	r := reconcile.NewReconciler(store, policy, compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
 	runs := r.Reconcile(context.Background())
 
 	if len(runs) != 0 {
@@ -682,6 +682,164 @@ func TestReconcile_RemoveDisabled_Skips(t *testing.T) {
 	}
 	if len(compose.downCalls) != 0 {
 		t.Errorf("expected 0 compose down calls, got %d", len(compose.downCalls))
+	}
+}
+
+// --- ReconcileStack (targeted single-stack reconciliation) tests ---
+
+func TestReconcileStack_Success(t *testing.T) {
+	store := desiredstate.NewStore()
+	composeContent := []byte("services:\n  web:\n    image: nginx\n")
+	store.Set(&desiredstate.Snapshot{
+		Revision:      "rev1",
+		CommitMessage: "deploy v1",
+		RefreshStatus: desiredstate.RefreshStatusCompleted,
+		Stacks: []desiredstate.StackRecord{
+			{Path: "app1", ComposeFile: "docker-compose.yml", ComposeHash: "hash1", Content: composeContent},
+		},
+	})
+
+	compose := &stubComposeRunner{}
+	inspector := &stubInspector{labels: map[string]reconcile.StackSyncMetadata{}}
+
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
+	run := r.ReconcileStack(context.Background(), "app1")
+
+	if run.Result != "success" {
+		t.Fatalf("expected success, got %q (error: %s)", run.Result, run.Error)
+	}
+	if len(compose.upCalls) != 1 {
+		t.Fatalf("expected 1 compose up call, got %d", len(compose.upCalls))
+	}
+	if run.StackPath != "app1" {
+		t.Errorf("expected stack path app1, got %q", run.StackPath)
+	}
+
+	// Verify stack status updated to synced
+	snap := store.Get()
+	if snap.Stacks[0].Status != desiredstate.StackSyncSynced {
+		t.Errorf("expected synced status, got %q", snap.Stacks[0].Status)
+	}
+}
+
+func TestReconcileStack_NilSnapshot(t *testing.T) {
+	store := desiredstate.NewStore()
+	// Don't set any snapshot — store.Get() returns nil
+
+	compose := &stubComposeRunner{}
+	inspector := &stubInspector{labels: map[string]reconcile.StackSyncMetadata{}}
+
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
+	run := r.ReconcileStack(context.Background(), "app1")
+
+	if run.Result != "failed" {
+		t.Fatalf("expected failed, got %q", run.Result)
+	}
+	if run.Error != "no desired state" {
+		t.Errorf("expected 'no desired state' error, got %q", run.Error)
+	}
+	if len(compose.upCalls) != 0 {
+		t.Errorf("expected 0 compose up calls, got %d", len(compose.upCalls))
+	}
+}
+
+func TestReconcileStack_StackNotFound(t *testing.T) {
+	store := desiredstate.NewStore()
+	composeContent := []byte("services:\n  web:\n    image: nginx\n")
+	store.Set(&desiredstate.Snapshot{
+		Revision:      "rev1",
+		RefreshStatus: desiredstate.RefreshStatusCompleted,
+		Stacks: []desiredstate.StackRecord{
+			{Path: "app1", ComposeFile: "docker-compose.yml", ComposeHash: "hash1", Content: composeContent},
+		},
+	})
+
+	compose := &stubComposeRunner{}
+	inspector := &stubInspector{labels: map[string]reconcile.StackSyncMetadata{}}
+
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
+	run := r.ReconcileStack(context.Background(), "nonexistent-stack")
+
+	if run.Result != "failed" {
+		t.Fatalf("expected failed, got %q", run.Result)
+	}
+	if run.Error != "stack not found in desired state" {
+		t.Errorf("expected 'stack not found in desired state' error, got %q", run.Error)
+	}
+	if len(compose.upCalls) != 0 {
+		t.Errorf("expected 0 compose up calls, got %d", len(compose.upCalls))
+	}
+}
+
+func TestReconcileStack_ComposeUpFailure(t *testing.T) {
+	store := desiredstate.NewStore()
+	composeContent := []byte("services:\n  web:\n    image: nginx\n")
+	store.Set(&desiredstate.Snapshot{
+		Revision:      "rev1",
+		RefreshStatus: desiredstate.RefreshStatusCompleted,
+		Stacks: []desiredstate.StackRecord{
+			{Path: "app1", ComposeFile: "docker-compose.yml", ComposeHash: "hash1", Content: composeContent},
+		},
+	})
+
+	compose := &stubComposeRunner{upErr: fmt.Errorf("connection refused")}
+	inspector := &stubInspector{labels: map[string]reconcile.StackSyncMetadata{}}
+
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
+	run := r.ReconcileStack(context.Background(), "app1")
+
+	if run.Result != "failed" {
+		t.Fatalf("expected failed, got %q", run.Result)
+	}
+	if run.Error == "" {
+		t.Error("expected non-empty error message")
+	}
+
+	// Verify stack status set to failed
+	snap := store.Get()
+	if snap.Stacks[0].Status != desiredstate.StackSyncFailed {
+		t.Errorf("expected failed status, got %q", snap.Stacks[0].Status)
+	}
+}
+
+func TestReconcileStack_BypassesDriftDetection(t *testing.T) {
+	store := desiredstate.NewStore()
+	composeContent := []byte("services:\n  web:\n    image: nginx\n")
+	store.Set(&desiredstate.Snapshot{
+		Revision:      "rev1",
+		RefreshStatus: desiredstate.RefreshStatusCompleted,
+		Stacks: []desiredstate.StackRecord{
+			// Stack is already marked synced with matching hash — drift detector would skip it
+			{Path: "app1", ComposeFile: "docker-compose.yml", ComposeHash: "hash1", Status: desiredstate.StackSyncSynced, Content: composeContent},
+		},
+	})
+
+	compose := &stubComposeRunner{}
+	// Inspector shows stack is in sync — Reconcile() would skip it
+	inspector := &stubInspector{
+		labels: map[string]reconcile.StackSyncMetadata{
+			"app1": {StackPath: "app1", DesiredRevision: "rev1", DesiredComposeHash: "hash1"},
+		},
+	}
+
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
+
+	// Verify Reconcile() would skip this stack (it's in sync)
+	runs := r.Reconcile(context.Background())
+	if len(runs) != 0 {
+		t.Fatalf("expected Reconcile to skip in-sync stack, got %d runs", len(runs))
+	}
+	if len(compose.upCalls) != 0 {
+		t.Fatalf("expected 0 compose up calls from Reconcile, got %d", len(compose.upCalls))
+	}
+
+	// ReconcileStack should sync regardless — it bypasses drift detection
+	run := r.ReconcileStack(context.Background(), "app1")
+	if run.Result != "success" {
+		t.Fatalf("expected ReconcileStack success, got %q (error: %s)", run.Result, run.Error)
+	}
+	if len(compose.upCalls) != 1 {
+		t.Fatalf("expected 1 compose up call from ReconcileStack, got %d", len(compose.upCalls))
 	}
 }
 
@@ -708,7 +866,7 @@ func TestReconcile_NoOp_MultipleStacksInSync(t *testing.T) {
 		},
 	}
 
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose))
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
 	runs := r.Reconcile(context.Background())
 
 	if len(runs) != 0 {

@@ -111,7 +111,7 @@ func main() {
 	driftDetector := reconcile.NewDriftDetector(cfg.GitDeployDir, logger)
 	stateManager := reconcile.NewStateManager(store, composeRunner, eventBus, logger)
 
-	reconciler := reconcile.NewReconciler(store, policy, composeRunner, inspector, ackStore, cfg.GitDeployDir, driftDetector, stateManager)
+	reconciler := reconcile.NewReconciler(store, policy, composeRunner, inspector, ackStore, cfg.GitDeployDir, driftDetector, stateManager, logger)
 
 	// Wire reconciler into refresh pipeline
 	refreshSvc.SetReconcileFunc(func(ctx context.Context) {

@@ -139,26 +139,44 @@ func TestNewSchedulerService_NilDependencies(t *testing.T) {
 // Mock CommandRunner for testing Docker client
 
 type mockRunner struct {
-	pullCalls  []pullCall
-	pruneCalls int
-	pullError  error
-	pruneOut   string
-	pruneError error
-	pullDelay  time.Duration // Add delay to simulate slow operations
+	pullCalls     []pullCall
+	pruneCalls    int
+	pullError     error
+	pruneOut      string
+	pruneError    error
+	pullDelay     time.Duration     // Add delay to simulate slow operations
+	composeImages string            // output for "docker compose config --images"
+	imageDigests  map[string]string // image name -> digest for "docker inspect"
+	inspectCalls  []string          // track which images were inspected
+	configError   error             // error for "docker compose config --images"
+	inspectError  error             // error for "docker inspect"
 }
 
 // Helper function to create a minimal reconciler for testing
+// noopComposeRunner satisfies reconcile.ComposeRunner for unit tests.
+type noopComposeRunner struct{}
+
+func (n *noopComposeRunner) ComposeUp(_ context.Context, _, _, _, _ string) error {
+	return nil
+}
+func (n *noopComposeRunner) ComposeDown(_ context.Context, _, _, _ string) error { return nil }
+func (n *noopComposeRunner) ComposePs(_ context.Context, _ string) ([]desiredstate.ContainerInfo, error) {
+	return nil, nil
+}
+
 func newTestReconciler(store *desiredstate.Store) *reconcile.Reconciler {
-	policy := reconcile.ReconciliationPolicy{Enabled: false} // Disabled to avoid nil pointer issues with missing deps
+	compose := &noopComposeRunner{}
+	sm := reconcile.NewStateManager(store, compose, nil, slog.Default())
 	return reconcile.NewReconciler(
 		store,
-		policy,
-		nil, // compose runner - reconciler won't actually run since disabled
-		nil, // container inspector
-		nil, // ackStore
+		reconcile.DefaultPolicy(),
+		compose,
+		nil, // container inspector — not needed for ReconcileStack path
+		reconcile.NewAckStore(),
 		"",  // deployDir
-		nil, // driftDetector
-		nil, // stateManager
+		nil, // driftDetector — not needed for ReconcileStack path
+		sm,
+		slog.Default(),
 	)
 }
 
@@ -168,6 +186,18 @@ type pullCall struct {
 }
 
 func (m *mockRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
+	// Check if it's a compose config --images command
+	if name == "docker" && containsArgs(args, "compose", "config", "--images") {
+		if m.configError != nil {
+			return nil, m.configError
+		}
+		out := m.composeImages
+		if out == "" {
+			out = "nginx:latest\n"
+		}
+		return []byte(out), nil
+	}
+
 	// Check if it's a compose pull command
 	if name == "docker" && containsArgs(args, "compose", "pull") {
 		if m.pullDelay > 0 {
@@ -175,6 +205,23 @@ func (m *mockRunner) Run(ctx context.Context, name string, args ...string) ([]by
 		}
 		m.pullCalls = append(m.pullCalls, pullCall{name: name, args: args})
 		return []byte{}, m.pullError
+	}
+
+	// Check if it's a docker inspect for image digest
+	if name == "docker" && containsArgs(args, "inspect") && containsArgs(args, "--format") {
+		// Extract image name (last argument)
+		imageName := args[len(args)-1]
+		m.inspectCalls = append(m.inspectCalls, imageName)
+		if m.inspectError != nil {
+			return nil, m.inspectError
+		}
+		if m.imageDigests != nil {
+			if digest, ok := m.imageDigests[imageName]; ok {
+				return []byte(digest + "\n"), nil
+			}
+		}
+		// Default digest
+		return []byte("sha256:default000\n"), nil
 	}
 
 	// Check if it's an image prune command
@@ -223,7 +270,8 @@ func TestTriggerUpdateCycle_Success(t *testing.T) {
 		RefreshStatus: desiredstate.RefreshStatusCompleted,
 		Stacks: []desiredstate.StackRecord{{
 			Path:        "test-stack",
-			ComposeFile: "/test/docker-compose.yml",
+			ComposeFile: "docker-compose.yml",
+			Content:     []byte("services:\n  web:\n    image: nginx\n"),
 			Status:      desiredstate.StackSyncSynced,
 		}},
 	})
@@ -278,7 +326,8 @@ func TestTriggerUpdateCycle_AlreadyRunning(t *testing.T) {
 		RefreshStatus: desiredstate.RefreshStatusCompleted,
 		Stacks: []desiredstate.StackRecord{{
 			Path:        "test-stack",
-			ComposeFile: "/test/docker-compose.yml",
+			ComposeFile: "docker-compose.yml",
+			Content:     []byte("services:\n  web:\n    image: nginx\n"),
 			Status:      desiredstate.StackSyncSynced,
 		}},
 	})
@@ -413,12 +462,14 @@ func TestExecuteUpdateCycle_SkipFailedStacks(t *testing.T) {
 		Stacks: []desiredstate.StackRecord{
 			{
 				Path:        "failed-stack",
-				ComposeFile: "/test/docker-compose.yml",
+				ComposeFile: "docker-compose.yml",
+				Content:     []byte("services:\n  web:\n    image: nginx\n"),
 				Status:      desiredstate.StackSyncFailed, // Failed status
 			},
 			{
 				Path:        "healthy-stack",
-				ComposeFile: "/test2/docker-compose.yml",
+				ComposeFile: "docker-compose.yml",
+				Content:     []byte("services:\n  web:\n    image: nginx\n"),
 				Status:      desiredstate.StackSyncSynced,
 			},
 		},
@@ -458,12 +509,14 @@ func TestExecuteUpdateCycle_ContinueOnError(t *testing.T) {
 		Stacks: []desiredstate.StackRecord{
 			{
 				Path:        "stack1",
-				ComposeFile: "/test1/docker-compose.yml",
+				ComposeFile: "docker-compose.yml",
+				Content:     []byte("services:\n  web:\n    image: nginx\n"),
 				Status:      desiredstate.StackSyncSynced,
 			},
 			{
 				Path:        "stack2",
-				ComposeFile: "/test2/docker-compose.yml",
+				ComposeFile: "docker-compose.yml",
+				Content:     []byte("services:\n  web:\n    image: nginx\n"),
 				Status:      desiredstate.StackSyncSynced,
 			},
 		},
@@ -487,7 +540,8 @@ func TestExecuteUpdateCycle_ContinueOnError(t *testing.T) {
 	// Manually run the first stack which will fail
 	stack1 := desiredstate.StackRecord{
 		Path:        "stack1",
-		ComposeFile: "/test1/docker-compose.yml",
+		ComposeFile: "docker-compose.yml",
+		Content:     []byte("services:\n  web:\n    image: nginx\n"),
 		Status:      desiredstate.StackSyncSynced,
 	}
 	result1 := svc.updateStack(context.Background(), stack1)
@@ -505,7 +559,8 @@ func TestExecuteUpdateCycle_ContinueOnError(t *testing.T) {
 	// Manually run the second stack which will succeed
 	stack2 := desiredstate.StackRecord{
 		Path:        "stack2",
-		ComposeFile: "/test2/docker-compose.yml",
+		ComposeFile: "docker-compose.yml",
+		Content:     []byte("services:\n  web:\n    image: nginx\n"),
 		Status:      desiredstate.StackSyncSynced,
 	}
 	result2 := svc.updateStack(context.Background(), stack2)
@@ -540,7 +595,8 @@ func TestExecuteUpdateCycle_EventBroadcasting(t *testing.T) {
 	store.Set(&desiredstate.Snapshot{
 		Stacks: []desiredstate.StackRecord{{
 			Path:        "test-stack",
-			ComposeFile: "/test/docker-compose.yml",
+			ComposeFile: "docker-compose.yml",
+			Content:     []byte("services:\n  web:\n    image: nginx\n"),
 			Status:      desiredstate.StackSyncSynced,
 		}},
 	})
@@ -564,4 +620,336 @@ func TestExecuteUpdateCycle_EventBroadcasting(t *testing.T) {
 	if cycle.StacksProcessed != 1 {
 		t.Errorf("Expected 1 stack processed, got %d", cycle.StacksProcessed)
 	}
+}
+
+// TestUpdateStack_DigestComparison_ImageChanged verifies that when an image digest
+// changes after pull, it is detected and logged, and reconciliation is triggered.
+func TestUpdateStack_DigestComparison_ImageChanged(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	cfg := config.Config{
+		UpdaterEnabled: true,
+		UpdaterCron:    "0 3 * * *",
+	}
+
+	store := desiredstate.NewStore()
+	store.Set(&desiredstate.Snapshot{
+		Stacks: []desiredstate.StackRecord{{
+			Path:        "test-stack",
+			ComposeFile: "docker-compose.yml",
+			Content:     []byte("services:\n  web:\n    image: nginx:latest\n"),
+			Status:      desiredstate.StackSyncSynced,
+		}},
+	})
+
+	// Simulate digest change: before pull returns old digest, after pull returns new.
+	callCount := 0
+	mockRun := &mockRunner{
+		composeImages: "nginx:latest\n",
+	}
+	wrapRunner := &sequentialInspectRunner{
+		inner:          mockRun,
+		inspectDigests: []string{"sha256:olddigest111", "sha256:newdigest222"},
+		inspectIndex:   &callCount,
+	}
+
+	dockerClient := docker.NewClient(wrapRunner, cfg.DockerSocket)
+
+	svc, err := NewSchedulerService(cfg, logger, store, dockerClient, newTestReconciler(store), nil)
+	if err != nil {
+		t.Fatalf("Failed to create scheduler: %v", err)
+	}
+
+	stack := desiredstate.StackRecord{
+		Path:        "test-stack",
+		ComposeFile: "docker-compose.yml",
+		Content:     []byte("services:\n  web:\n    image: nginx:latest\n"),
+		Status:      desiredstate.StackSyncSynced,
+	}
+
+	result := svc.updateStack(context.Background(), stack)
+
+	if !result.Success {
+		t.Fatalf("Expected success, got error: %v", result.Error)
+	}
+	if !result.ReconcileTriggered {
+		t.Error("Expected reconciliation to be triggered when image changed")
+	}
+	if len(result.ImagesPulled) != 1 {
+		t.Fatalf("Expected 1 image pull result, got %d", len(result.ImagesPulled))
+	}
+	img := result.ImagesPulled[0]
+	if img.ImageName != "nginx:latest" {
+		t.Errorf("Expected image name 'nginx:latest', got %q", img.ImageName)
+	}
+	if !img.Changed {
+		t.Error("Expected image to be marked as changed")
+	}
+	if img.PreviousDigest != "sha256:olddigest111" {
+		t.Errorf("Expected previous digest 'sha256:olddigest111', got %q", img.PreviousDigest)
+	}
+	if img.NewDigest != "sha256:newdigest222" {
+		t.Errorf("Expected new digest 'sha256:newdigest222', got %q", img.NewDigest)
+	}
+}
+
+// TestUpdateStack_DigestComparison_NoChange verifies that when digests are the same
+// before and after pull, no reconciliation is triggered (optimization).
+func TestUpdateStack_DigestComparison_NoChange(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	cfg := config.Config{
+		UpdaterEnabled: true,
+		UpdaterCron:    "0 3 * * *",
+	}
+
+	store := desiredstate.NewStore()
+	store.Set(&desiredstate.Snapshot{
+		Stacks: []desiredstate.StackRecord{{
+			Path:        "test-stack",
+			ComposeFile: "docker-compose.yml",
+			Content:     []byte("services:\n  web:\n    image: nginx:latest\n"),
+			Status:      desiredstate.StackSyncSynced,
+		}},
+	})
+
+	// Same digest before and after pull — no change.
+	callCount := 0
+	mockRun := &mockRunner{
+		composeImages: "nginx:latest\n",
+	}
+	sameDigest := "sha256:unchanged999"
+	wrapRunner := &sequentialInspectRunner{
+		inner:          mockRun,
+		inspectDigests: []string{sameDigest, sameDigest},
+		inspectIndex:   &callCount,
+	}
+
+	dockerClient := docker.NewClient(wrapRunner, cfg.DockerSocket)
+
+	svc, err := NewSchedulerService(cfg, logger, store, dockerClient, newTestReconciler(store), nil)
+	if err != nil {
+		t.Fatalf("Failed to create scheduler: %v", err)
+	}
+
+	stack := desiredstate.StackRecord{
+		Path:        "test-stack",
+		ComposeFile: "docker-compose.yml",
+		Content:     []byte("services:\n  web:\n    image: nginx:latest\n"),
+		Status:      desiredstate.StackSyncSynced,
+	}
+
+	result := svc.updateStack(context.Background(), stack)
+
+	if !result.Success {
+		t.Fatalf("Expected success, got error: %v", result.Error)
+	}
+	if result.ReconcileTriggered {
+		t.Error("Expected reconciliation NOT to be triggered when no image changed")
+	}
+	if len(result.ImagesPulled) != 1 {
+		t.Fatalf("Expected 1 image pull result, got %d", len(result.ImagesPulled))
+	}
+	img := result.ImagesPulled[0]
+	if img.Changed {
+		t.Error("Expected image NOT to be marked as changed")
+	}
+}
+
+// TestUpdateStack_DigestComparison_MultipleImages verifies digest comparison
+// with multiple images where only some changed.
+func TestUpdateStack_DigestComparison_MultipleImages(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	cfg := config.Config{
+		UpdaterEnabled: true,
+		UpdaterCron:    "0 3 * * *",
+	}
+
+	store := desiredstate.NewStore()
+	store.Set(&desiredstate.Snapshot{
+		Stacks: []desiredstate.StackRecord{{
+			Path:        "test-stack",
+			ComposeFile: "docker-compose.yml",
+			Content:     []byte("services:\n  web:\n    image: nginx:latest\n  db:\n    image: postgres:16\n"),
+			Status:      desiredstate.StackSyncSynced,
+		}},
+	})
+
+	// nginx changes, postgres stays the same.
+	// Inspect order: nginx(before), postgres(before), nginx(after), postgres(after)
+	callCount := 0
+	mockRun := &mockRunner{
+		composeImages: "nginx:latest\npostgres:16\n",
+	}
+	wrapRunner := &sequentialInspectRunner{
+		inner: mockRun,
+		inspectDigests: []string{
+			"sha256:nginx_old", "sha256:pg_same", // before pull
+			"sha256:nginx_new", "sha256:pg_same", // after pull
+		},
+		inspectIndex: &callCount,
+	}
+
+	dockerClient := docker.NewClient(wrapRunner, cfg.DockerSocket)
+
+	svc, err := NewSchedulerService(cfg, logger, store, dockerClient, newTestReconciler(store), nil)
+	if err != nil {
+		t.Fatalf("Failed to create scheduler: %v", err)
+	}
+
+	stack := desiredstate.StackRecord{
+		Path:        "test-stack",
+		ComposeFile: "docker-compose.yml",
+		Content:     []byte("services:\n  web:\n    image: nginx:latest\n  db:\n    image: postgres:16\n"),
+		Status:      desiredstate.StackSyncSynced,
+	}
+
+	result := svc.updateStack(context.Background(), stack)
+
+	if !result.Success {
+		t.Fatalf("Expected success, got error: %v", result.Error)
+	}
+	if !result.ReconcileTriggered {
+		t.Error("Expected reconciliation to be triggered (nginx changed)")
+	}
+	if len(result.ImagesPulled) != 2 {
+		t.Fatalf("Expected 2 image pull results, got %d", len(result.ImagesPulled))
+	}
+
+	// Find the results by name
+	var nginxResult, pgResult *ImagePullResult
+	for i := range result.ImagesPulled {
+		switch result.ImagesPulled[i].ImageName {
+		case "nginx:latest":
+			nginxResult = &result.ImagesPulled[i]
+		case "postgres:16":
+			pgResult = &result.ImagesPulled[i]
+		}
+	}
+
+	if nginxResult == nil || pgResult == nil {
+		t.Fatal("Expected both nginx and postgres results")
+	}
+	if !nginxResult.Changed {
+		t.Error("Expected nginx to be marked as changed")
+	}
+	if pgResult.Changed {
+		t.Error("Expected postgres NOT to be marked as changed")
+	}
+}
+
+// TestUpdateStack_DigestComparison_InspectFailure verifies graceful handling
+// when digest inspection fails (should still pull and reconcile).
+func TestUpdateStack_DigestComparison_InspectFailure(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	cfg := config.Config{
+		UpdaterEnabled: true,
+		UpdaterCron:    "0 3 * * *",
+	}
+
+	store := desiredstate.NewStore()
+	store.Set(&desiredstate.Snapshot{
+		Stacks: []desiredstate.StackRecord{{
+			Path:        "test-stack",
+			ComposeFile: "docker-compose.yml",
+			Content:     []byte("services:\n  web:\n    image: nginx:latest\n"),
+			Status:      desiredstate.StackSyncSynced,
+		}},
+	})
+
+	mockRun := &mockRunner{
+		composeImages: "nginx:latest\n",
+		inspectError:  errors.New("inspect failed"),
+	}
+
+	dockerClient := docker.NewClient(mockRun, cfg.DockerSocket)
+
+	svc, err := NewSchedulerService(cfg, logger, store, dockerClient, newTestReconciler(store), nil)
+	if err != nil {
+		t.Fatalf("Failed to create scheduler: %v", err)
+	}
+
+	stack := desiredstate.StackRecord{
+		Path:        "test-stack",
+		ComposeFile: "docker-compose.yml",
+		Content:     []byte("services:\n  web:\n    image: nginx:latest\n"),
+		Status:      desiredstate.StackSyncSynced,
+	}
+
+	result := svc.updateStack(context.Background(), stack)
+
+	// Should still succeed — inspect failure is non-fatal, just triggers reconcile as fallback
+	if !result.Success {
+		t.Fatalf("Expected success even with inspect failure, got error: %v", result.Error)
+	}
+	if !result.ReconcileTriggered {
+		t.Error("Expected reconciliation to be triggered as fallback when inspect fails")
+	}
+}
+
+// TestUpdateStack_ConfigImagesFailure verifies graceful handling
+// when getting compose images fails (should still pull and reconcile).
+func TestUpdateStack_ConfigImagesFailure(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	cfg := config.Config{
+		UpdaterEnabled: true,
+		UpdaterCron:    "0 3 * * *",
+	}
+
+	store := desiredstate.NewStore()
+	store.Set(&desiredstate.Snapshot{
+		Stacks: []desiredstate.StackRecord{{
+			Path:        "test-stack",
+			ComposeFile: "docker-compose.yml",
+			Content:     []byte("services:\n  web:\n    image: nginx:latest\n"),
+			Status:      desiredstate.StackSyncSynced,
+		}},
+	})
+
+	mockRun := &mockRunner{
+		configError: errors.New("config --images failed"),
+	}
+
+	dockerClient := docker.NewClient(mockRun, cfg.DockerSocket)
+
+	svc, err := NewSchedulerService(cfg, logger, store, dockerClient, newTestReconciler(store), nil)
+	if err != nil {
+		t.Fatalf("Failed to create scheduler: %v", err)
+	}
+
+	stack := desiredstate.StackRecord{
+		Path:        "test-stack",
+		ComposeFile: "docker-compose.yml",
+		Content:     []byte("services:\n  web:\n    image: nginx:latest\n"),
+		Status:      desiredstate.StackSyncSynced,
+	}
+
+	result := svc.updateStack(context.Background(), stack)
+
+	// Should still succeed — config failure is non-fatal, just triggers reconcile as fallback
+	if !result.Success {
+		t.Fatalf("Expected success even with config failure, got error: %v", result.Error)
+	}
+	if !result.ReconcileTriggered {
+		t.Error("Expected reconciliation to be triggered as fallback when config --images fails")
+	}
+}
+
+// sequentialInspectRunner wraps a mockRunner but returns sequential digests for inspect calls.
+type sequentialInspectRunner struct {
+	inner          *mockRunner
+	inspectDigests []string
+	inspectIndex   *int
+}
+
+func (s *sequentialInspectRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
+	// Intercept docker inspect calls for digest lookups
+	if name == "docker" && containsArgs(args, "inspect") && containsArgs(args, "--format") {
+		idx := *s.inspectIndex
+		*s.inspectIndex++
+		if idx < len(s.inspectDigests) {
+			return []byte(s.inspectDigests[idx] + "\n"), nil
+		}
+		return []byte("sha256:fallback\n"), nil
+	}
+	// Delegate everything else to inner runner
+	return s.inner.Run(ctx, name, args...)
 }
