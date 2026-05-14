@@ -953,3 +953,110 @@ func (s *sequentialInspectRunner) Run(ctx context.Context, name string, args ...
 	// Delegate everything else to inner runner
 	return s.inner.Run(ctx, name, args...)
 }
+
+// --- CancelActiveUpdate tests ---
+
+// blockingMockRunner blocks on pull commands until context is cancelled.
+type blockingMockRunner struct {
+	pullStarted chan struct{} // closed when pull begins
+	inner       *mockRunner  // delegates non-pull commands
+}
+
+func (b *blockingMockRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
+	if name == "docker" && containsArgs(args, "compose", "pull") {
+		select {
+		case <-b.pullStarted:
+		default:
+			close(b.pullStarted)
+		}
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	return b.inner.Run(ctx, name, args...)
+}
+
+func TestCancelActiveUpdate_CancelsRunningCycle(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	cfg := config.Config{
+		UpdaterEnabled: true,
+		UpdaterCron:    "0 3 * * *",
+	}
+
+	store := desiredstate.NewStore()
+	store.Set(&desiredstate.Snapshot{
+		RefreshStatus: desiredstate.RefreshStatusCompleted,
+		Stacks: []desiredstate.StackRecord{{
+			Path:        "test-stack",
+			ComposeFile: "docker-compose.yml",
+			Content:     []byte("services:\n  web:\n    image: nginx\n"),
+			Status:      desiredstate.StackSyncSynced,
+		}},
+	})
+
+	inner := &mockRunner{
+		composeImages: "nginx:latest\n",
+		imageDigests:  map[string]string{"nginx:latest": "sha256:aaa"},
+	}
+	runner := &blockingMockRunner{
+		pullStarted: make(chan struct{}),
+		inner:       inner,
+	}
+	dockerClient := docker.NewClient(runner, cfg.DockerSocket)
+
+	svc, err := NewSchedulerService(cfg, logger, store, dockerClient, newTestReconciler(store), nil)
+	if err != nil {
+		t.Fatalf("Failed to create scheduler: %v", err)
+	}
+
+	err = svc.TriggerUpdateCycle(context.Background())
+	if err != nil {
+		t.Fatalf("TriggerUpdateCycle failed: %v", err)
+	}
+
+	// Wait for pull to start
+	select {
+	case <-runner.pullStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("pull did not start in time")
+	}
+
+	// Cancel the active update
+	svc.CancelActiveUpdate()
+
+	// Wait for cycle to complete (activeUpdate cleared)
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("update cycle did not terminate after cancel")
+		default:
+		}
+		svc.mu.Lock()
+		active := svc.activeUpdate
+		svc.mu.Unlock()
+		if active == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestCancelActiveUpdate_SafeWhenNoCycleActive(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	cfg := config.Config{
+		UpdaterEnabled: true,
+		UpdaterCron:    "0 3 * * *",
+	}
+
+	store := desiredstate.NewStore()
+	runner := &mockRunner{}
+	dockerClient := docker.NewClient(runner, cfg.DockerSocket)
+
+	svc, err := NewSchedulerService(cfg, logger, store, dockerClient, newTestReconciler(store), nil)
+	if err != nil {
+		t.Fatalf("Failed to create scheduler: %v", err)
+	}
+
+	// Should not panic
+	svc.CancelActiveUpdate()
+}

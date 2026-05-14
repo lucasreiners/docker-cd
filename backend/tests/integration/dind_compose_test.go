@@ -39,7 +39,7 @@ func TestDinD_ComposeUp_WritesFilesAndApplies(t *testing.T) {
 		t.Errorf("compose path should be absolute, got %q", composeFile)
 	}
 
-	err = composeRunner.ComposeUp(context.Background(), "mystack", composeFile, overrideFile, filepath.Dir(composeFile), false)
+	err = composeRunner.ComposeUp(context.Background(), "mystack", composeFile, overrideFile, filepath.Dir(composeFile))
 	if err != nil {
 		t.Fatalf("compose up failed: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestDinD_ComposeDown_RemovesContainers(t *testing.T) {
 	}
 	defer cleanup()
 
-	err = composeRunner.ComposeUp(context.Background(), "downstack", composeFile, overrideFile, filepath.Dir(composeFile), false)
+	err = composeRunner.ComposeUp(context.Background(), "downstack", composeFile, overrideFile, filepath.Dir(composeFile))
 	if err != nil {
 		t.Fatalf("compose up failed: %v", err)
 	}
@@ -366,7 +366,7 @@ func TestDinD_LabelRoundTrip(t *testing.T) {
 	defer cleanup()
 
 	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
-	err = composeRunner.ComposeUp(context.Background(), "labelrt", composeFile, overrideFile, filepath.Dir(composeFile), false)
+	err = composeRunner.ComposeUp(context.Background(), "labelrt", composeFile, overrideFile, filepath.Dir(composeFile))
 	if err != nil {
 		t.Fatalf("compose up failed: %v", err)
 	}
