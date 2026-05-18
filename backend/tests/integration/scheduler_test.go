@@ -33,7 +33,6 @@ func TestSchedulerIntegration(t *testing.T) {
 
 	// Initialize dependencies
 	store := desiredstate.NewStore()
-	runner := &docker.ExecRunner{}
 	dockerClient := docker.NewClient(nil)
 
 	// TODO: Setup test reconciler with proper dependencies
@@ -83,7 +82,6 @@ func TestSchedulerDisabled(t *testing.T) {
 	}
 
 	store := desiredstate.NewStore()
-	runner := &docker.ExecRunner{}
 	dockerClient := docker.NewClient(nil)
 
 	schedulerSvc, err := scheduler.NewSchedulerService(cfg, logger, store, dockerClient, nil, nil)
@@ -120,7 +118,6 @@ func TestCronExpressionValidation(t *testing.T) {
 			}
 
 			store := desiredstate.NewStore()
-			runner := &docker.ExecRunner{}
 			dockerClient := docker.NewClient(nil)
 
 			schedulerSvc, err := scheduler.NewSchedulerService(cfg, logger, store, dockerClient, nil, nil)
@@ -153,7 +150,6 @@ func TestSchedulerCustomSchedule(t *testing.T) {
 	}
 
 	store := desiredstate.NewStore()
-	runner := &docker.ExecRunner{}
 	dockerClient := docker.NewClient(nil)
 
 	schedulerSvc, err := scheduler.NewSchedulerService(cfg, logger, store, dockerClient, nil, nil)
@@ -188,7 +184,6 @@ func TestSchedulerLogging(t *testing.T) {
 	}
 
 	store := desiredstate.NewStore()
-	runner := &docker.ExecRunner{}
 	dockerClient := docker.NewClient(nil)
 
 	schedulerSvc, err := scheduler.NewSchedulerService(cfg, logger, store, dockerClient, nil, nil)
