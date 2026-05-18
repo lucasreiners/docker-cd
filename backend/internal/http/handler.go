@@ -21,19 +21,17 @@ import (
 	"github.com/lucasreiners/docker-cd/internal/render"
 )
 
-// CommandRunner abstracts command execution so handler tests can stub it.
-type CommandRunner interface {
-	Run(ctx context.Context, name string, args ...string) ([]byte, error)
-}
-
 // UpdateTrigger abstracts the scheduler's manual trigger capability.
 type UpdateTrigger interface {
 	TriggerUpdateCycle(ctx context.Context) error
 	GetUpdateStatus() interface{}
 }
 
+// DockerAPI abstracts the Docker SDK client for container operations.
+type DockerAPI = docker.DockerAPI
+
 // RootHandler returns a Gin handler that renders the status page.
-func RootHandler(runner CommandRunner, cfg config.Config) gin.HandlerFunc {
+func RootHandler(cfg config.Config, api DockerAPI) gin.HandlerFunc {
 	// Build repo info from config (never includes token)
 	var repo *render.RepoInfo
 	if cfg.GitRepoURL != "" {
@@ -45,7 +43,7 @@ func RootHandler(runner CommandRunner, cfg config.Config) gin.HandlerFunc {
 	}
 
 	return func(c *gin.Context) {
-		client := docker.NewClient(runner, cfg.DockerSocket)
+		client := docker.NewClient(api)
 		status, err := client.ContainerCount(c.Request.Context())
 		if err != nil {
 			c.String(http.StatusInternalServerError, err.Error())

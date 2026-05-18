@@ -55,7 +55,11 @@ func TestDinD_UpdateCycleUsesLocalClone(t *testing.T) {
 		},
 	})
 
-	client := docker.NewClient(runner, env.DockerHost)
+	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
+	if err != nil {
+		t.Fatalf("SDK client: %v", err)
+	}
+	client := docker.NewClient(sdkAPI)
 	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
 	inspector := reconcile.NewDockerContainerInspector(client)
 	policy := reconcile.DefaultPolicy()
@@ -126,7 +130,11 @@ func TestDinD_UpdateCycleRestartsContainers(t *testing.T) {
 		}},
 	})
 
-	client := docker.NewClient(runner, env.DockerHost)
+	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
+	if err != nil {
+		t.Fatalf("SDK client: %v", err)
+	}
+	client := docker.NewClient(sdkAPI)
 	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
 	inspector := reconcile.NewDockerContainerInspector(client)
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug}))

@@ -3,44 +3,70 @@ package docker_test
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/image"
 	"github.com/lucasreiners/docker-cd/internal/docker"
 )
 
-type stubRunner struct {
-	output []byte
-	err    error
+// mockDockerAPI implements docker.DockerAPI for unit tests.
+type mockDockerAPI struct {
+	containerListFn       func(ctx context.Context, options container.ListOptions) ([]types.Container, error)
+	containerInspectFn    func(ctx context.Context, containerID string) (types.ContainerJSON, error)
+	imageInspectWithRawFn func(ctx context.Context, imageID string) (types.ImageInspect, []byte, error)
+	imagePullFn           func(ctx context.Context, refStr string, options image.PullOptions) (io.ReadCloser, error)
+	imagesPruneFn         func(ctx context.Context, pruneFilters filters.Args) (image.PruneReport, error)
 }
 
-func (s *stubRunner) Run(_ context.Context, _ string, _ ...string) ([]byte, error) {
-	return s.output, s.err
-}
-
-// multiStubRunner returns different outputs for sequential calls.
-type multiStubRunner struct {
-	outputs [][]byte
-	errs    []error
-	call    int
-}
-
-func (m *multiStubRunner) Run(_ context.Context, _ string, _ ...string) ([]byte, error) {
-	i := m.call
-	m.call++
-	if i >= len(m.outputs) {
-		return nil, fmt.Errorf("unexpected call %d", i)
+func (m *mockDockerAPI) ContainerList(ctx context.Context, options container.ListOptions) ([]types.Container, error) {
+	if m.containerListFn != nil {
+		return m.containerListFn(ctx, options)
 	}
-	var err error
-	if i < len(m.errs) {
-		err = m.errs[i]
-	}
-	return m.outputs[i], err
+	return nil, nil
 }
+
+func (m *mockDockerAPI) ContainerInspect(ctx context.Context, containerID string) (types.ContainerJSON, error) {
+	if m.containerInspectFn != nil {
+		return m.containerInspectFn(ctx, containerID)
+	}
+	return types.ContainerJSON{}, nil
+}
+
+func (m *mockDockerAPI) ImageInspectWithRaw(ctx context.Context, imageID string) (types.ImageInspect, []byte, error) {
+	if m.imageInspectWithRawFn != nil {
+		return m.imageInspectWithRawFn(ctx, imageID)
+	}
+	return types.ImageInspect{}, nil, nil
+}
+
+func (m *mockDockerAPI) ImagePull(ctx context.Context, refStr string, options image.PullOptions) (io.ReadCloser, error) {
+	if m.imagePullFn != nil {
+		return m.imagePullFn(ctx, refStr, options)
+	}
+	return io.NopCloser(strings.NewReader("")), nil
+}
+
+func (m *mockDockerAPI) ImagesPrune(ctx context.Context, pruneFilters filters.Args) (image.PruneReport, error) {
+	if m.imagesPruneFn != nil {
+		return m.imagesPruneFn(ctx, pruneFilters)
+	}
+	return image.PruneReport{}, nil
+}
+
+// --- ContainerCount tests (now SDK-based) ---
 
 func TestContainerCount_ThreeRunning(t *testing.T) {
-	runner := &stubRunner{output: []byte("abc123\ndef456\nghi789\n")}
-	client := docker.NewClient(runner, "/var/run/docker.sock")
+	api := &mockDockerAPI{
+		containerListFn: func(_ context.Context, _ container.ListOptions) ([]types.Container, error) {
+			return []types.Container{{ID: "abc"}, {ID: "def"}, {ID: "ghi"}}, nil
+		},
+	}
+	client := docker.NewClient(api)
 
 	status, err := client.ContainerCount(context.Background())
 	if err != nil {
@@ -52,8 +78,12 @@ func TestContainerCount_ThreeRunning(t *testing.T) {
 }
 
 func TestContainerCount_ZeroRunning(t *testing.T) {
-	runner := &stubRunner{output: []byte("")}
-	client := docker.NewClient(runner, "/var/run/docker.sock")
+	api := &mockDockerAPI{
+		containerListFn: func(_ context.Context, _ container.ListOptions) ([]types.Container, error) {
+			return nil, nil
+		},
+	}
+	client := docker.NewClient(api)
 
 	status, err := client.ContainerCount(context.Background())
 	if err != nil {
@@ -65,8 +95,12 @@ func TestContainerCount_ZeroRunning(t *testing.T) {
 }
 
 func TestContainerCount_OneRunning(t *testing.T) {
-	runner := &stubRunner{output: []byte("abc123\n")}
-	client := docker.NewClient(runner, "/var/run/docker.sock")
+	api := &mockDockerAPI{
+		containerListFn: func(_ context.Context, _ container.ListOptions) ([]types.Container, error) {
+			return []types.Container{{ID: "abc"}}, nil
+		},
+	}
+	client := docker.NewClient(api)
 
 	status, err := client.ContainerCount(context.Background())
 	if err != nil {
@@ -77,22 +111,30 @@ func TestContainerCount_OneRunning(t *testing.T) {
 	}
 }
 
-func TestContainerCount_CLIError(t *testing.T) {
-	runner := &stubRunner{output: []byte("permission denied"), err: fmt.Errorf("exit status 1")}
-	client := docker.NewClient(runner, "/var/run/docker.sock")
+func TestContainerCount_APIError(t *testing.T) {
+	api := &mockDockerAPI{
+		containerListFn: func(_ context.Context, _ container.ListOptions) ([]types.Container, error) {
+			return nil, fmt.Errorf("connection refused")
+		},
+	}
+	client := docker.NewClient(api)
 
 	_, err := client.ContainerCount(context.Background())
 	if err == nil {
-		t.Fatal("expected error from CLI failure, got nil")
+		t.Fatal("expected error from API failure, got nil")
 	}
-	if !strings.Contains(err.Error(), "docker CLI error") {
-		t.Errorf("expected error to contain 'docker CLI error', got %q", err.Error())
+	if !strings.Contains(err.Error(), "docker API error") {
+		t.Errorf("expected error to contain 'docker API error', got %q", err.Error())
 	}
 }
 
 func TestContainerCount_RetrievedAtSet(t *testing.T) {
-	runner := &stubRunner{output: []byte("abc\n")}
-	client := docker.NewClient(runner, "/var/run/docker.sock")
+	api := &mockDockerAPI{
+		containerListFn: func(_ context.Context, _ container.ListOptions) ([]types.Container, error) {
+			return []types.Container{{ID: "abc"}}, nil
+		},
+	}
+	client := docker.NewClient(api)
 
 	status, err := client.ContainerCount(context.Background())
 	if err != nil {
@@ -103,9 +145,15 @@ func TestContainerCount_RetrievedAtSet(t *testing.T) {
 	}
 }
 
+// --- ListContainersWithLabel tests (now SDK-based) ---
+
 func TestListContainersWithLabel_Empty(t *testing.T) {
-	runner := &stubRunner{output: []byte("")}
-	client := docker.NewClient(runner, "/var/run/docker.sock")
+	api := &mockDockerAPI{
+		containerListFn: func(_ context.Context, _ container.ListOptions) ([]types.Container, error) {
+			return nil, nil
+		},
+	}
+	client := docker.NewClient(api)
 
 	containers, err := client.ListContainersWithLabel(context.Background(), "com.docker-cd.stack.path")
 	if err != nil {
@@ -117,12 +165,18 @@ func TestListContainersWithLabel_Empty(t *testing.T) {
 }
 
 func TestListContainersWithLabel_SingleContainer(t *testing.T) {
-	psOutput := "abc123\n"
-	inspectOutput := `{"Id":"abc123","Name":"/my-app","Config":{"Labels":{"com.docker-cd.stack.path":"app1","com.docker-cd.sync.status":"synced"}}}` + "\n"
-	runner := &multiStubRunner{
-		outputs: [][]byte{[]byte(psOutput), []byte(inspectOutput)},
+	api := &mockDockerAPI{
+		containerListFn: func(_ context.Context, _ container.ListOptions) ([]types.Container, error) {
+			return []types.Container{
+				{
+					ID:     "abc123",
+					Names:  []string{"/my-app"},
+					Labels: map[string]string{"com.docker-cd.stack.path": "app1", "com.docker-cd.sync.status": "synced"},
+				},
+			}, nil
+		},
 	}
-	client := docker.NewClient(runner, "/var/run/docker.sock")
+	client := docker.NewClient(api)
 
 	containers, err := client.ListContainersWithLabel(context.Background(), "com.docker-cd.stack.path")
 	if err != nil {
@@ -146,13 +200,15 @@ func TestListContainersWithLabel_SingleContainer(t *testing.T) {
 }
 
 func TestListContainersWithLabel_MultipleContainers(t *testing.T) {
-	psOutput := "abc123\nabc456\n"
-	inspectOutput := `{"Id":"abc123","Name":"/app1-web","Config":{"Labels":{"com.docker-cd.stack.path":"app1"}}}` + "\n" +
-		`{"Id":"abc456","Name":"/app2-web","Config":{"Labels":{"com.docker-cd.stack.path":"app2"}}}` + "\n"
-	runner := &multiStubRunner{
-		outputs: [][]byte{[]byte(psOutput), []byte(inspectOutput)},
+	api := &mockDockerAPI{
+		containerListFn: func(_ context.Context, _ container.ListOptions) ([]types.Container, error) {
+			return []types.Container{
+				{ID: "abc123", Names: []string{"/app1-web"}, Labels: map[string]string{"com.docker-cd.stack.path": "app1"}},
+				{ID: "abc456", Names: []string{"/app2-web"}, Labels: map[string]string{"com.docker-cd.stack.path": "app2"}},
+			}, nil
+		},
 	}
-	client := docker.NewClient(runner, "/var/run/docker.sock")
+	client := docker.NewClient(api)
 
 	containers, err := client.ListContainersWithLabel(context.Background(), "com.docker-cd.stack.path")
 	if err != nil {
@@ -163,54 +219,25 @@ func TestListContainersWithLabel_MultipleContainers(t *testing.T) {
 	}
 }
 
-func TestListContainersWithLabel_InvalidJSON(t *testing.T) {
-	psOutput := "abc123\n"
-	inspectOutput := "not valid JSON\n"
-	runner := &multiStubRunner{
-		outputs: [][]byte{[]byte(psOutput), []byte(inspectOutput)},
+func TestListContainersWithLabel_APIError(t *testing.T) {
+	api := &mockDockerAPI{
+		containerListFn: func(_ context.Context, _ container.ListOptions) ([]types.Container, error) {
+			return nil, fmt.Errorf("connection refused")
+		},
 	}
-	client := docker.NewClient(runner, "/var/run/docker.sock")
-
-	containers, err := client.ListContainersWithLabel(context.Background(), "com.docker-cd.stack.path")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(containers) != 0 {
-		t.Errorf("expected 0 containers (invalid JSON skipped), got %d", len(containers))
-	}
-}
-
-func TestListContainersWithLabel_InspectError(t *testing.T) {
-	psOutput := "abc123\n"
-	runner := &multiStubRunner{
-		outputs: [][]byte{[]byte(psOutput), []byte("inspect error")},
-		errs:    []error{nil, fmt.Errorf("exit status 1")},
-	}
-	client := docker.NewClient(runner, "/var/run/docker.sock")
+	client := docker.NewClient(api)
 
 	_, err := client.ListContainersWithLabel(context.Background(), "com.docker-cd.stack.path")
 	if err == nil {
-		t.Fatal("expected error from inspect failure, got nil")
+		t.Fatal("expected error from API failure, got nil")
 	}
-	if !strings.Contains(err.Error(), "docker inspect error") {
-		t.Errorf("expected docker inspect error, got %q", err.Error())
-	}
-}
-
-func TestListContainersWithLabel_CLIError(t *testing.T) {
-	runner := &stubRunner{output: []byte("error"), err: fmt.Errorf("exit status 1")}
-	client := docker.NewClient(runner, "/var/run/docker.sock")
-
-	_, err := client.ListContainersWithLabel(context.Background(), "com.docker-cd.stack.path")
-	if err == nil {
-		t.Fatal("expected error from CLI failure, got nil")
-	}
-	if !strings.Contains(err.Error(), "docker CLI error") {
-		t.Errorf("expected docker CLI error, got %q", err.Error())
+	if !strings.Contains(err.Error(), "docker API error") {
+		t.Errorf("expected docker API error, got %q", err.Error())
 	}
 }
 
-// HostArgs tests
+// --- HostArgs tests (unchanged) ---
+
 func TestHostArgs_EmptySocket(t *testing.T) {
 	args := docker.HostArgs("")
 	if args != nil {
@@ -242,34 +269,143 @@ func TestHostArgs_UnixURL(t *testing.T) {
 	}
 }
 
-// Image operations tests
-func TestPullImages_Success(t *testing.T) {
-	runner := &stubRunner{output: []byte("")}
-	client := docker.NewClient(runner, "/var/run/docker.sock")
+// --- PullImages tests (now SDK-based) ---
 
-	err := client.PullImages(context.Background(), "myproject", "/path/to/compose.yml", "")
+func TestPullImages_Success(t *testing.T) {
+	api := &mockDockerAPI{
+		imagePullFn: func(_ context.Context, refStr string, _ image.PullOptions) (io.ReadCloser, error) {
+			stream := `{"status":"Pulling from library/nginx","id":"latest"}` + "\n" +
+				`{"status":"Pull complete","id":"abc123"}` + "\n"
+			return io.NopCloser(strings.NewReader(stream)), nil
+		},
+	}
+	client := docker.NewClient(api)
+
+	var progress []docker.PullProgress
+	err := client.PullImages(context.Background(), []string{"nginx:latest"}, func(p docker.PullProgress) {
+		progress = append(progress, p)
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should have at least the final "Pull complete" event
+	if len(progress) == 0 {
+		t.Fatal("expected at least one progress event")
+	}
+	last := progress[len(progress)-1]
+	if last.Status != "Pull complete" {
+		t.Errorf("expected last status 'Pull complete', got %q", last.Status)
+	}
+	if last.Image != "nginx:latest" {
+		t.Errorf("expected image 'nginx:latest', got %q", last.Image)
+	}
+	if last.Current != 1 || last.Total != 1 {
+		t.Errorf("expected 1/1, got %d/%d", last.Current, last.Total)
+	}
+}
+
+func TestPullImages_Error(t *testing.T) {
+	api := &mockDockerAPI{
+		imagePullFn: func(_ context.Context, _ string, _ image.PullOptions) (io.ReadCloser, error) {
+			return nil, fmt.Errorf("unauthorized")
+		},
+	}
+	client := docker.NewClient(api)
+
+	err := client.PullImages(context.Background(), []string{"private/image:latest"}, nil)
+	if err == nil {
+		t.Fatal("expected error from pull failure, got nil")
+	}
+	if !strings.Contains(err.Error(), "pull private/image:latest failed") {
+		t.Errorf("expected error to contain image name, got %q", err.Error())
+	}
+}
+
+func TestPullImages_StreamError(t *testing.T) {
+	api := &mockDockerAPI{
+		imagePullFn: func(_ context.Context, _ string, _ image.PullOptions) (io.ReadCloser, error) {
+			stream := `{"error":"image not found"}` + "\n"
+			return io.NopCloser(strings.NewReader(stream)), nil
+		},
+	}
+	client := docker.NewClient(api)
+
+	err := client.PullImages(context.Background(), []string{"nonexistent:latest"}, nil)
+	if err == nil {
+		t.Fatal("expected error from stream error event")
+	}
+	if !strings.Contains(err.Error(), "image not found") {
+		t.Errorf("expected 'image not found' in error, got %q", err.Error())
+	}
+}
+
+func TestPullImages_NilCallback(t *testing.T) {
+	api := &mockDockerAPI{
+		imagePullFn: func(_ context.Context, _ string, _ image.PullOptions) (io.ReadCloser, error) {
+			stream := `{"status":"Pull complete"}` + "\n"
+			return io.NopCloser(strings.NewReader(stream)), nil
+		},
+	}
+	client := docker.NewClient(api)
+
+	err := client.PullImages(context.Background(), []string{"nginx:latest"}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-func TestPullImages_Error(t *testing.T) {
-	runner := &stubRunner{output: []byte("pull failed"), err: fmt.Errorf("exit status 1")}
-	client := docker.NewClient(runner, "/var/run/docker.sock")
-
-	err := client.PullImages(context.Background(), "myproject", "/path/to/compose.yml", "")
-	if err == nil {
-		t.Fatal("expected error from pull failure, got nil")
+func TestPullImages_MultipleImages(t *testing.T) {
+	pullCount := 0
+	api := &mockDockerAPI{
+		imagePullFn: func(_ context.Context, refStr string, _ image.PullOptions) (io.ReadCloser, error) {
+			pullCount++
+			stream := fmt.Sprintf(`{"status":"Pull complete","id":"%s"}`, refStr) + "\n"
+			return io.NopCloser(strings.NewReader(stream)), nil
+		},
 	}
-	if !strings.Contains(err.Error(), "docker compose pull failed") {
-		t.Errorf("expected error to contain 'docker compose pull failed', got %q", err.Error())
+	client := docker.NewClient(api)
+
+	var events []docker.PullProgress
+	err := client.PullImages(context.Background(), []string{"nginx:latest", "redis:7"}, func(p docker.PullProgress) {
+		events = append(events, p)
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if pullCount != 2 {
+		t.Errorf("expected 2 pull calls, got %d", pullCount)
+	}
+	// Check the final events have correct Current/Total
+	found := map[string]bool{}
+	for _, e := range events {
+		if e.Status == "Pull complete" {
+			found[e.Image] = true
+			if e.Total != 2 {
+				t.Errorf("expected total=2, got %d for %s", e.Total, e.Image)
+			}
+		}
+	}
+	if !found["nginx:latest"] || !found["redis:7"] {
+		t.Errorf("expected both images in progress events, got %v", found)
 	}
 }
 
+// --- PruneImages tests (now SDK-based) ---
+
 func TestPruneImages_Success(t *testing.T) {
-	output := "Deleted Images:\ndeleted: sha256:abc123\ndeleted: sha256:def456\nTotal reclaimed space: 1.234GB\n"
-	runner := &stubRunner{output: []byte(output)}
-	client := docker.NewClient(runner, "/var/run/docker.sock")
+	api := &mockDockerAPI{
+		imagesPruneFn: func(_ context.Context, _ filters.Args) (image.PruneReport, error) {
+			return image.PruneReport{
+				ImagesDeleted: []image.DeleteResponse{
+					{Deleted: "sha256:abc123"},
+					{Deleted: "sha256:def456"},
+					{Untagged: "nginx:latest"},
+				},
+				SpaceReclaimed: 1234000000, // ~1.234GB
+			}, nil
+		},
+	}
+	client := docker.NewClient(api)
 
 	removed, space, err := client.PruneImages(context.Background())
 	if err != nil {
@@ -278,16 +414,20 @@ func TestPruneImages_Success(t *testing.T) {
 	if space != "1.234GB" {
 		t.Errorf("expected space '1.234GB', got %q", space)
 	}
-	// Note: The current implementation counts both "Deleted Images:" header and "deleted:" lines
 	if removed != 3 {
-		t.Errorf("expected 3 lines counted (1 header + 2 deleted), got %d", removed)
+		t.Errorf("expected 3 images removed, got %d", removed)
 	}
 }
 
 func TestPruneImages_NoImagesRemoved(t *testing.T) {
-	output := "Total reclaimed space: 0B\n"
-	runner := &stubRunner{output: []byte(output)}
-	client := docker.NewClient(runner, "/var/run/docker.sock")
+	api := &mockDockerAPI{
+		imagesPruneFn: func(_ context.Context, _ filters.Args) (image.PruneReport, error) {
+			return image.PruneReport{
+				SpaceReclaimed: 0,
+			}, nil
+		},
+	}
+	client := docker.NewClient(api)
 
 	removed, space, err := client.PruneImages(context.Background())
 	if err != nil {
@@ -302,8 +442,12 @@ func TestPruneImages_NoImagesRemoved(t *testing.T) {
 }
 
 func TestPruneImages_Error(t *testing.T) {
-	runner := &stubRunner{output: []byte("prune failed"), err: fmt.Errorf("exit status 1")}
-	client := docker.NewClient(runner, "/var/run/docker.sock")
+	api := &mockDockerAPI{
+		imagesPruneFn: func(_ context.Context, _ filters.Args) (image.PruneReport, error) {
+			return image.PruneReport{}, fmt.Errorf("permission denied")
+		},
+	}
+	client := docker.NewClient(api)
 
 	_, _, err := client.PruneImages(context.Background())
 	if err == nil {
@@ -314,23 +458,32 @@ func TestPruneImages_Error(t *testing.T) {
 	}
 }
 
+// --- GetImageDigest tests (now SDK-based) ---
+
 func TestGetImageDigest_Success(t *testing.T) {
-	digest := "sha256:abc123def456"
-	runner := &stubRunner{output: []byte(digest + "\n")}
-	client := docker.NewClient(runner, "/var/run/docker.sock")
+	api := &mockDockerAPI{
+		imageInspectWithRawFn: func(_ context.Context, _ string) (types.ImageInspect, []byte, error) {
+			return types.ImageInspect{ID: "sha256:abc123def456"}, nil, nil
+		},
+	}
+	client := docker.NewClient(api)
 
 	result, err := client.GetImageDigest(context.Background(), "nginx:latest")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result != digest {
-		t.Errorf("expected digest %q, got %q", digest, result)
+	if result != "sha256:abc123def456" {
+		t.Errorf("expected digest %q, got %q", "sha256:abc123def456", result)
 	}
 }
 
 func TestGetImageDigest_Error(t *testing.T) {
-	runner := &stubRunner{output: []byte("inspect failed"), err: fmt.Errorf("exit status 1")}
-	client := docker.NewClient(runner, "/var/run/docker.sock")
+	api := &mockDockerAPI{
+		imageInspectWithRawFn: func(_ context.Context, _ string) (types.ImageInspect, []byte, error) {
+			return types.ImageInspect{}, nil, fmt.Errorf("image not found")
+		},
+	}
+	client := docker.NewClient(api)
 
 	_, err := client.GetImageDigest(context.Background(), "nonexistent:image")
 	if err == nil {
@@ -339,80 +492,4 @@ func TestGetImageDigest_Error(t *testing.T) {
 	if !strings.Contains(err.Error(), "docker inspect failed") {
 		t.Errorf("expected error to contain 'docker inspect failed', got %q", err.Error())
 	}
-}
-
-// GetComposeImages tests
-
-func TestGetComposeImages_Success(t *testing.T) {
-	output := "nginx:latest\nredis:7-alpine\npostgres:16\n"
-	runner := &stubRunner{output: []byte(output)}
-	client := docker.NewClient(runner, "/var/run/docker.sock")
-
-	images, err := client.GetComposeImages(context.Background(), "myproject", "/path/to/compose.yml", "/work")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(images) != 3 {
-		t.Fatalf("expected 3 images, got %d", len(images))
-	}
-	expected := []string{"nginx:latest", "redis:7-alpine", "postgres:16"}
-	for i, img := range images {
-		if img != expected[i] {
-			t.Errorf("image[%d]: expected %q, got %q", i, expected[i], img)
-		}
-	}
-}
-
-func TestGetComposeImages_EmptyOutput(t *testing.T) {
-	runner := &stubRunner{output: []byte("")}
-	client := docker.NewClient(runner, "/var/run/docker.sock")
-
-	images, err := client.GetComposeImages(context.Background(), "myproject", "/path/to/compose.yml", "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(images) != 0 {
-		t.Errorf("expected 0 images, got %d", len(images))
-	}
-}
-
-func TestGetComposeImages_Error(t *testing.T) {
-	runner := &stubRunner{output: []byte("config failed"), err: fmt.Errorf("exit status 1")}
-	client := docker.NewClient(runner, "/var/run/docker.sock")
-
-	_, err := client.GetComposeImages(context.Background(), "myproject", "/path/to/compose.yml", "")
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !strings.Contains(err.Error(), "docker compose config --images failed") {
-		t.Errorf("expected error to contain 'docker compose config --images failed', got %q", err.Error())
-	}
-}
-
-func TestGetComposeImages_WithWorkDir(t *testing.T) {
-	var capturedArgs []string
-	runner := &argCapturingRunner{output: []byte("nginx:latest\n"), capture: func(args []string) { capturedArgs = args }}
-	client := docker.NewClient(runner, "/var/run/docker.sock")
-
-	_, err := client.GetComposeImages(context.Background(), "myproject", "/path/to/compose.yml", "/my/workdir")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// Verify --project-directory was passed
-	if !strings.Contains(strings.Join(capturedArgs, " "), "--project-directory") {
-		t.Error("expected --project-directory in args when workDir is set")
-	}
-}
-
-// argCapturingRunner is a CommandRunner that captures the args passed to Run.
-type argCapturingRunner struct {
-	output  []byte
-	capture func(args []string)
-}
-
-func (r *argCapturingRunner) Run(_ context.Context, _ string, args ...string) ([]byte, error) {
-	if r.capture != nil {
-		r.capture(args)
-	}
-	return r.output, nil
 }

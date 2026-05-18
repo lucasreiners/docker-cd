@@ -82,6 +82,13 @@ func main() {
 
 	runner := &docker.ExecRunner{}
 
+	// Initialize Docker SDK client
+	sdkClient, err := docker.NewSDKClient(cfg.DockerSocket)
+	if err != nil {
+		logger.Error("failed to create Docker SDK client", "error", err)
+		os.Exit(1)
+	}
+
 	// Initialize desired-state refresh pipeline
 	store := desiredstate.NewStore()
 	broadcaster := desiredstate.NewBroadcaster()
@@ -102,7 +109,7 @@ func main() {
 		DriftPolicy:    cfg.DriftPolicy,
 		MaxConcurrency: 1,
 	}
-	dockerClient := docker.NewClient(runner, cfg.DockerSocket)
+	dockerClient := docker.NewClient(sdkClient)
 	composeRunner := reconcile.NewDockerComposeRunner(runner, cfg.DockerSocket)
 	inspector := reconcile.NewDockerContainerInspector(dockerClient)
 	ackStore := reconcile.NewAckStore()
@@ -148,7 +155,7 @@ func main() {
 	// Start background refresh loop
 	go refreshSvc.Start(ctx)
 
-	router := handler.NewRouter(runner, cfg, refreshSvc, store, ackStore, reconciler, schedulerSvc, broadcaster)
+	router := handler.NewRouter(cfg, refreshSvc, store, ackStore, reconciler, schedulerSvc, sdkClient, broadcaster)
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	logger.Info("http server starting", "addr", addr)

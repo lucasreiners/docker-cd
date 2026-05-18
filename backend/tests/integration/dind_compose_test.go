@@ -46,7 +46,11 @@ func TestDinD_ComposeUp_WritesFilesAndApplies(t *testing.T) {
 
 	waitForContainers(t, runner, 1, 15*time.Second)
 
-	client := docker.NewClient(runner, env.DockerHost)
+	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
+	if err != nil {
+		t.Fatalf("SDK client: %v", err)
+	}
+	client := docker.NewClient(sdkAPI)
 	containers, err := client.ListContainersWithLabel(context.Background(), reconcile.LabelStackPath)
 	if err != nil {
 		t.Fatalf("ListContainersWithLabel failed: %v", err)
@@ -100,7 +104,11 @@ func TestDinD_ComposeDown_RemovesContainers(t *testing.T) {
 
 	time.Sleep(2 * time.Second)
 
-	client := docker.NewClient(runner, env.DockerHost)
+	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
+	if err != nil {
+		t.Fatalf("SDK client: %v", err)
+	}
+	client := docker.NewClient(sdkAPI)
 	containers, err := client.ListContainersWithLabel(context.Background(), reconcile.LabelStackPath)
 	if err != nil {
 		t.Fatalf("ListContainersWithLabel failed: %v", err)
@@ -115,7 +123,11 @@ func TestDinD_ComposeDown_RemovesContainers(t *testing.T) {
 func TestDinD_ListContainersWithLabel_RealDaemon(t *testing.T) {
 	env := dind.StartT(t)
 	runner := &dindRunner{Host: env.DockerHost}
-	client := docker.NewClient(runner, env.DockerHost)
+	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
+	if err != nil {
+		t.Fatalf("SDK client: %v", err)
+	}
+	client := docker.NewClient(sdkAPI)
 
 	labelValue := "my/stack,path"
 	_, err := runner.Run(context.Background(), "docker", "run", "-d",
@@ -147,7 +159,11 @@ func TestDinD_ListContainersWithLabel_RealDaemon(t *testing.T) {
 func TestDinD_ListContainersWithLabel_MultipleContainers(t *testing.T) {
 	env := dind.StartT(t)
 	runner := &dindRunner{Host: env.DockerHost}
-	client := docker.NewClient(runner, env.DockerHost)
+	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
+	if err != nil {
+		t.Fatalf("SDK client: %v", err)
+	}
+	client := docker.NewClient(sdkAPI)
 
 	for i := 0; i < 3; i++ {
 		_, err := runner.Run(context.Background(), "docker", "run", "-d",
@@ -174,7 +190,11 @@ func TestDinD_ListContainersWithLabel_MultipleContainers(t *testing.T) {
 func TestDinD_ListContainersWithLabel_NoMatch(t *testing.T) {
 	env := dind.StartT(t)
 	runner := &dindRunner{Host: env.DockerHost}
-	client := docker.NewClient(runner, env.DockerHost)
+	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
+	if err != nil {
+		t.Fatalf("SDK client: %v", err)
+	}
+	client := docker.NewClient(sdkAPI)
 
 	containers, err := client.ListContainersWithLabel(context.Background(), "nonexistent.label")
 	if err != nil {
@@ -188,7 +208,11 @@ func TestDinD_ListContainersWithLabel_NoMatch(t *testing.T) {
 func TestDinD_ContainerCount_RealDaemon(t *testing.T) {
 	env := dind.StartT(t)
 	runner := &dindRunner{Host: env.DockerHost}
-	client := docker.NewClient(runner, env.DockerHost)
+	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
+	if err != nil {
+		t.Fatalf("SDK client: %v", err)
+	}
+	client := docker.NewClient(sdkAPI)
 
 	status, err := client.ContainerCount(context.Background())
 	if err != nil {
@@ -234,7 +258,11 @@ func TestDinD_GetStackLabels_GroupsByStack(t *testing.T) {
 
 	time.Sleep(2 * time.Second)
 
-	client := docker.NewClient(runner, env.DockerHost)
+	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
+	if err != nil {
+		t.Fatalf("SDK client: %v", err)
+	}
+	client := docker.NewClient(sdkAPI)
 	inspector := reconcile.NewDockerContainerInspector(client)
 	labels, err := inspector.GetStackLabels(context.Background())
 	if err != nil {
@@ -272,7 +300,11 @@ func TestDinD_GetStackLabels_MultipleStacks(t *testing.T) {
 
 	time.Sleep(2 * time.Second)
 
-	client := docker.NewClient(runner, env.DockerHost)
+	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
+	if err != nil {
+		t.Fatalf("SDK client: %v", err)
+	}
+	client := docker.NewClient(sdkAPI)
 	inspector := reconcile.NewDockerContainerInspector(client)
 	labels, err := inspector.GetStackLabels(context.Background())
 	if err != nil {
@@ -372,7 +404,11 @@ func TestDinD_LabelRoundTrip(t *testing.T) {
 	}
 	waitForContainers(t, runner, 1, 15*time.Second)
 
-	client := docker.NewClient(runner, env.DockerHost)
+	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
+	if err != nil {
+		t.Fatalf("SDK client: %v", err)
+	}
+	client := docker.NewClient(sdkAPI)
 	containers, err := client.ListContainersWithLabel(context.Background(), reconcile.LabelStackPath)
 	if err != nil {
 		t.Fatalf("ListContainersWithLabel failed: %v", err)
@@ -416,7 +452,11 @@ func TestDinD_MapLabelsToMetadata_RealLabels(t *testing.T) {
 	})
 
 	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
-	client := docker.NewClient(runner, env.DockerHost)
+	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
+	if err != nil {
+		t.Fatalf("SDK client: %v", err)
+	}
+	client := docker.NewClient(sdkAPI)
 	inspector := reconcile.NewDockerContainerInspector(client)
 	r := newDindReconciler(store, reconcile.DefaultPolicy(), composeRunner, inspector, reconcile.NewAckStore(), "")
 

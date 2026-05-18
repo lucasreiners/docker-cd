@@ -270,6 +270,89 @@ func extractServiceNames(content []byte) []string {
 	return names
 }
 
+// ExtractComposeImages parses raw compose YAML content and returns the list
+// of image references. Uses the same lightweight line-parsing approach as
+// extractServiceNames. Services with build: but no image: are skipped.
+// Duplicate images are deduplicated.
+func ExtractComposeImages(content []byte) []string {
+	lines := strings.Split(string(content), "\n")
+	inServices := false
+	serviceIndent := -1
+	propIndent := -1
+	var images []string
+	seen := make(map[string]bool)
+	currentImage := ""
+
+	flush := func() {
+		if currentImage != "" && !seen[currentImage] {
+			images = append(images, currentImage)
+			seen[currentImage] = true
+		}
+		currentImage = ""
+	}
+
+	for _, line := range lines {
+		trimmed := strings.TrimRight(line, " \t\r")
+		stripped := strings.TrimSpace(trimmed)
+
+		if stripped == "" || strings.HasPrefix(stripped, "#") {
+			continue
+		}
+
+		// Detect top-level "services:" key
+		if stripped == "services:" && countIndent(trimmed) == 0 {
+			inServices = true
+			continue
+		}
+
+		if !inServices {
+			continue
+		}
+
+		indent := countIndent(trimmed)
+
+		// Non-indented line means new top-level key — stop
+		if indent == 0 {
+			flush()
+			break
+		}
+
+		// Detect service indent level from first indented line
+		if serviceIndent < 0 {
+			serviceIndent = indent
+		}
+
+		// New service block
+		if indent == serviceIndent && strings.HasSuffix(stripped, ":") {
+			flush()
+			propIndent = -1
+			continue
+		}
+
+		// Detect property indent from first line under service
+		if propIndent < 0 && indent > serviceIndent {
+			propIndent = indent
+		}
+
+		// Only look at direct service properties
+		if propIndent > 0 && indent == propIndent {
+			if strings.HasPrefix(stripped, "image:") {
+				val := strings.TrimSpace(strings.TrimPrefix(stripped, "image:"))
+				// Remove quotes
+				val = strings.Trim(val, "\"'")
+				if val != "" {
+					currentImage = val
+				}
+			}
+		}
+	}
+
+	// Flush last service
+	flush()
+
+	return images
+}
+
 // countIndent returns the effective indentation width of a line,
 // treating tabs as 4 spaces.
 func countIndent(line string) int {

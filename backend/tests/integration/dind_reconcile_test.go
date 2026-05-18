@@ -66,7 +66,11 @@ func TestDinD_ReconcileComposeUp(t *testing.T) {
 	})
 
 	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
-	client := docker.NewClient(runner, env.DockerHost)
+	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
+	if err != nil {
+		t.Fatalf("SDK client: %v", err)
+	}
+	client := docker.NewClient(sdkAPI)
 	inspector := reconcile.NewDockerContainerInspector(client)
 
 	r := newDindReconciler(store, reconcile.DefaultPolicy(), composeRunner, inspector, reconcile.NewAckStore(), "")
@@ -140,7 +144,11 @@ func TestDinD_ReconcileBlockedUntilRefreshComplete(t *testing.T) {
 	})
 
 	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
-	client := docker.NewClient(runner, env.DockerHost)
+	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
+	if err != nil {
+		t.Fatalf("SDK client: %v", err)
+	}
+	client := docker.NewClient(sdkAPI)
 	inspector := reconcile.NewDockerContainerInspector(client)
 	r := newDindReconciler(store, reconcile.DefaultPolicy(), composeRunner, inspector, reconcile.NewAckStore(), "")
 
@@ -289,7 +297,11 @@ func TestDinD_ReconcileNoOpWhenInSync(t *testing.T) {
 	})
 
 	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
-	client := docker.NewClient(runner, env.DockerHost)
+	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
+	if err != nil {
+		t.Fatalf("SDK client: %v", err)
+	}
+	client := docker.NewClient(sdkAPI)
 	inspector := reconcile.NewDockerContainerInspector(client)
 	r := newDindReconciler(store, reconcile.DefaultPolicy(), composeRunner, inspector, reconcile.NewAckStore(), "")
 
@@ -333,7 +345,11 @@ func TestDinD_DriftDetectionRevisionChange(t *testing.T) {
 	})
 
 	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
-	client := docker.NewClient(runner, env.DockerHost)
+	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
+	if err != nil {
+		t.Fatalf("SDK client: %v", err)
+	}
+	client := docker.NewClient(sdkAPI)
 	inspector := reconcile.NewDockerContainerInspector(client)
 	r := newDindReconciler(store, reconcile.DefaultPolicy(), composeRunner, inspector, reconcile.NewAckStore(), "")
 
@@ -404,7 +420,11 @@ func TestDinD_StackRemoval(t *testing.T) {
 	})
 
 	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
-	client := docker.NewClient(runner, env.DockerHost)
+	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
+	if err != nil {
+		t.Fatalf("SDK client: %v", err)
+	}
+	client := docker.NewClient(sdkAPI)
 	inspector := reconcile.NewDockerContainerInspector(client)
 	policy := reconcile.DefaultPolicy()
 	policy.RemoveEnabled = true
@@ -465,7 +485,11 @@ func TestDinD_MultiServiceStack(t *testing.T) {
 	})
 
 	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
-	client := docker.NewClient(runner, env.DockerHost)
+	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
+	if err != nil {
+		t.Fatalf("SDK client: %v", err)
+	}
+	client := docker.NewClient(sdkAPI)
 	inspector := reconcile.NewDockerContainerInspector(client)
 	r := newDindReconciler(store, reconcile.DefaultPolicy(), composeRunner, inspector, reconcile.NewAckStore(), "")
 
@@ -515,7 +539,11 @@ func TestDinD_ComposeHashDrift(t *testing.T) {
 	})
 
 	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
-	client := docker.NewClient(runner, env.DockerHost)
+	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
+	if err != nil {
+		t.Fatalf("SDK client: %v", err)
+	}
+	client := docker.NewClient(sdkAPI)
 	inspector := reconcile.NewDockerContainerInspector(client)
 	r := newDindReconciler(store, reconcile.DefaultPolicy(), composeRunner, inspector, reconcile.NewAckStore(), "")
 
@@ -576,7 +604,11 @@ func TestDinD_FlagPolicyRequiresAck(t *testing.T) {
 	policy.DriftPolicy = "flag"
 
 	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
-	client := docker.NewClient(runner, env.DockerHost)
+	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
+	if err != nil {
+		t.Fatalf("SDK client: %v", err)
+	}
+	client := docker.NewClient(sdkAPI)
 	inspector := reconcile.NewDockerContainerInspector(client)
 	ackStore := reconcile.NewAckStore()
 	r := newDindReconciler(store, policy, composeRunner, inspector, ackStore, "")
@@ -626,7 +658,11 @@ func TestDinD_FourSpaceIndentLabels(t *testing.T) {
 	})
 
 	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
-	client := docker.NewClient(runner, env.DockerHost)
+	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
+	if err != nil {
+		t.Fatalf("SDK client: %v", err)
+	}
+	client := docker.NewClient(sdkAPI)
 	inspector := reconcile.NewDockerContainerInspector(client)
 	r := newDindReconciler(store, reconcile.DefaultPolicy(), composeRunner, inspector, reconcile.NewAckStore(), "")
 

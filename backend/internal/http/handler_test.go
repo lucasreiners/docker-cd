@@ -6,11 +6,16 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/image"
 	"github.com/gin-gonic/gin"
 	"github.com/lucasreiners/docker-cd/internal/config"
 	"github.com/lucasreiners/docker-cd/internal/desiredstate"
@@ -19,25 +24,43 @@ import (
 	"github.com/lucasreiners/docker-cd/internal/refresh"
 )
 
-type stubRunner struct {
-	output []byte
-	err    error
+// stubDockerAPI implements docker.DockerAPI for handler tests.
+type stubDockerAPI struct {
+	containers []types.Container
+	err        error
 }
 
-func (s *stubRunner) Run(_ context.Context, _ string, _ ...string) ([]byte, error) {
-	return s.output, s.err
+func (s *stubDockerAPI) ContainerList(_ context.Context, _ container.ListOptions) ([]types.Container, error) {
+	return s.containers, s.err
+}
+func (s *stubDockerAPI) ContainerInspect(_ context.Context, _ string) (types.ContainerJSON, error) {
+	return types.ContainerJSON{}, nil
+}
+func (s *stubDockerAPI) ImageInspectWithRaw(_ context.Context, _ string) (types.ImageInspect, []byte, error) {
+	return types.ImageInspect{}, nil, nil
+}
+func (s *stubDockerAPI) ImagePull(_ context.Context, _ string, _ image.PullOptions) (io.ReadCloser, error) {
+	return io.NopCloser(strings.NewReader("")), nil
+}
+func (s *stubDockerAPI) ImagesPrune(_ context.Context, _ filters.Args) (image.PruneReport, error) {
+	return image.PruneReport{}, nil
 }
 
-func setupRouter(runner handler.CommandRunner, cfg config.Config) *gin.Engine {
+func setupRouter(cfg config.Config) *gin.Engine {
 	gin.SetMode(gin.TestMode)
-	return handler.NewRouter(runner, cfg, nil, nil, nil, nil, nil)
+	return handler.NewRouter(cfg, nil, nil, nil, nil, nil, nil)
+}
+
+func setupRouterWithAPI(cfg config.Config, api handler.DockerAPI) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	return handler.NewRouter(cfg, nil, nil, nil, nil, nil, api)
 }
 
 func TestRootHandler_Success(t *testing.T) {
-	runner := &stubRunner{output: []byte("a\nb\nc\n")}
+	api := &stubDockerAPI{containers: []types.Container{{ID: "a"}, {ID: "b"}, {ID: "c"}}}
 	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
 
-	router := setupRouter(runner, cfg)
+	router := setupRouterWithAPI(cfg, api)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()
@@ -57,10 +80,10 @@ func TestRootHandler_Success(t *testing.T) {
 }
 
 func TestRootHandler_DockerError(t *testing.T) {
-	runner := &stubRunner{output: []byte("permission denied"), err: fmt.Errorf("exit status 1")}
+	api := &stubDockerAPI{err: fmt.Errorf("connection refused")}
 	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
 
-	router := setupRouter(runner, cfg)
+	router := setupRouterWithAPI(cfg, api)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()
@@ -71,16 +94,16 @@ func TestRootHandler_DockerError(t *testing.T) {
 	}
 
 	body := w.Body.String()
-	if !strings.Contains(body, "docker CLI error") {
+	if !strings.Contains(body, "docker API error") {
 		t.Errorf("response should contain error message, got:\n%s", body)
 	}
 }
 
 func TestRootHandler_ZeroContainers(t *testing.T) {
-	runner := &stubRunner{output: []byte("")}
+	api := &stubDockerAPI{}
 	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
 
-	router := setupRouter(runner, cfg)
+	router := setupRouterWithAPI(cfg, api)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()
@@ -97,7 +120,7 @@ func TestRootHandler_ZeroContainers(t *testing.T) {
 }
 
 func TestRootHandler_ShowsRepoInfo(t *testing.T) {
-	runner := &stubRunner{output: []byte("a\n")}
+	api := &stubDockerAPI{containers: []types.Container{{ID: "a"}}}
 	cfg := config.Config{
 		Port:           8080,
 		ProjectName:    "Docker-CD",
@@ -108,7 +131,7 @@ func TestRootHandler_ShowsRepoInfo(t *testing.T) {
 		GitDeployDir:   "deployments/host-a",
 	}
 
-	router := setupRouter(runner, cfg)
+	router := setupRouterWithAPI(cfg, api)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()
@@ -141,19 +164,18 @@ func signPayload(secret, payload string) string {
 	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
 }
 
-func setupRouterWithRefresh(runner handler.CommandRunner, cfg config.Config) *gin.Engine {
+func setupRouterWithRefresh(cfg config.Config) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	store := desiredstate.NewStore()
 	queue := refresh.NewQueue()
 	svc := refresh.NewService(cfg, store, queue, nil)
-	return handler.NewRouter(runner, cfg, svc, store, nil, nil, nil)
+	return handler.NewRouter(cfg, svc, store, nil, nil, nil, nil)
 }
 
 func TestWebhookHandler_NoSecretConfigured(t *testing.T) {
-	runner := &stubRunner{output: []byte("a\n")}
 	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
 
-	router := setupRouterWithRefresh(runner, cfg)
+	router := setupRouterWithRefresh(cfg)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhook", strings.NewReader(`{"ref":"refs/heads/main"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -170,7 +192,6 @@ func TestWebhookHandler_NoSecretConfigured(t *testing.T) {
 }
 
 func TestWebhookHandler_ValidSignature(t *testing.T) {
-	runner := &stubRunner{output: []byte("a\n")}
 	secret := "test-secret-123"
 	cfg := config.Config{
 		Port:          8080,
@@ -179,7 +200,7 @@ func TestWebhookHandler_ValidSignature(t *testing.T) {
 		WebhookSecret: secret,
 	}
 
-	router := setupRouterWithRefresh(runner, cfg)
+	router := setupRouterWithRefresh(cfg)
 
 	payload := `{"ref":"refs/heads/main"}`
 	sig := signPayload(secret, payload)
@@ -200,7 +221,6 @@ func TestWebhookHandler_ValidSignature(t *testing.T) {
 }
 
 func TestWebhookHandler_InvalidSignature(t *testing.T) {
-	runner := &stubRunner{output: []byte("a\n")}
 	cfg := config.Config{
 		Port:          8080,
 		ProjectName:   "Docker-CD",
@@ -208,7 +228,7 @@ func TestWebhookHandler_InvalidSignature(t *testing.T) {
 		WebhookSecret: "real-secret",
 	}
 
-	router := setupRouterWithRefresh(runner, cfg)
+	router := setupRouterWithRefresh(cfg)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhook", strings.NewReader(`{"ref":"refs/heads/main"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -226,7 +246,6 @@ func TestWebhookHandler_InvalidSignature(t *testing.T) {
 }
 
 func TestWebhookHandler_MissingSignatureWhenRequired(t *testing.T) {
-	runner := &stubRunner{output: []byte("a\n")}
 	cfg := config.Config{
 		Port:          8080,
 		ProjectName:   "Docker-CD",
@@ -234,7 +253,7 @@ func TestWebhookHandler_MissingSignatureWhenRequired(t *testing.T) {
 		WebhookSecret: "needs-sig",
 	}
 
-	router := setupRouterWithRefresh(runner, cfg)
+	router := setupRouterWithRefresh(cfg)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhook", strings.NewReader(`{"ref":"refs/heads/main"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -249,10 +268,9 @@ func TestWebhookHandler_MissingSignatureWhenRequired(t *testing.T) {
 // --- Manual refresh handler tests (T017) ---
 
 func TestManualRefreshHandler_ReturnsStatus(t *testing.T) {
-	runner := &stubRunner{output: []byte("a\n")}
 	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
 
-	router := setupRouterWithRefresh(runner, cfg)
+	router := setupRouterWithRefresh(cfg)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/refresh", nil)
 	w := httptest.NewRecorder()
@@ -270,7 +288,6 @@ func TestManualRefreshHandler_ReturnsStatus(t *testing.T) {
 // --- Refresh status handler tests (T017) ---
 
 func TestRefreshStatusHandler_ReturnsJSON(t *testing.T) {
-	runner := &stubRunner{output: []byte("a\n")}
 	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
 
 	store := desiredstate.NewStore()
@@ -278,7 +295,7 @@ func TestRefreshStatusHandler_ReturnsJSON(t *testing.T) {
 	svc := refresh.NewService(cfg, store, queue, nil)
 
 	gin.SetMode(gin.TestMode)
-	router := handler.NewRouter(runner, cfg, svc, store, nil, nil, nil)
+	router := handler.NewRouter(cfg, svc, store, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/refresh-status", nil)
 	w := httptest.NewRecorder()
@@ -294,7 +311,6 @@ func TestRefreshStatusHandler_ReturnsJSON(t *testing.T) {
 }
 
 func TestRefreshStatusHandler_WithPopulatedStore(t *testing.T) {
-	runner := &stubRunner{output: []byte("a\n")}
 	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
 
 	store := desiredstate.NewStore()
@@ -311,7 +327,7 @@ func TestRefreshStatusHandler_WithPopulatedStore(t *testing.T) {
 	svc := refresh.NewService(cfg, store, queue, nil)
 
 	gin.SetMode(gin.TestMode)
-	router := handler.NewRouter(runner, cfg, svc, store, nil, nil, nil)
+	router := handler.NewRouter(cfg, svc, store, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/refresh-status", nil)
 	w := httptest.NewRecorder()
@@ -333,7 +349,6 @@ func TestRefreshStatusHandler_WithPopulatedStore(t *testing.T) {
 // --- Stacks handler tests (T017) ---
 
 func TestStacksHandler_EmptyStore(t *testing.T) {
-	runner := &stubRunner{output: []byte("a\n")}
 	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
 
 	store := desiredstate.NewStore()
@@ -341,7 +356,7 @@ func TestStacksHandler_EmptyStore(t *testing.T) {
 	svc := refresh.NewService(cfg, store, queue, nil)
 
 	gin.SetMode(gin.TestMode)
-	router := handler.NewRouter(runner, cfg, svc, store, nil, nil, nil)
+	router := handler.NewRouter(cfg, svc, store, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/stacks", nil)
 	w := httptest.NewRecorder()
@@ -357,7 +372,6 @@ func TestStacksHandler_EmptyStore(t *testing.T) {
 }
 
 func TestStacksHandler_WithStacks(t *testing.T) {
-	runner := &stubRunner{output: []byte("a\n")}
 	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
 
 	store := desiredstate.NewStore()
@@ -373,7 +387,7 @@ func TestStacksHandler_WithStacks(t *testing.T) {
 	svc := refresh.NewService(cfg, store, queue, nil)
 
 	gin.SetMode(gin.TestMode)
-	router := handler.NewRouter(runner, cfg, svc, store, nil, nil, nil)
+	router := handler.NewRouter(cfg, svc, store, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/stacks", nil)
 	w := httptest.NewRecorder()
@@ -397,7 +411,6 @@ func TestStacksHandler_WithStacks(t *testing.T) {
 // --- T018/T019: Sync metadata in API tests ---
 
 func TestStacksHandler_ExposeSyncMetadata(t *testing.T) {
-	runner := &stubRunner{output: []byte("a\n")}
 	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
 
 	store := desiredstate.NewStore()
@@ -423,7 +436,7 @@ func TestStacksHandler_ExposeSyncMetadata(t *testing.T) {
 	svc := refresh.NewService(cfg, store, queue, nil)
 
 	gin.SetMode(gin.TestMode)
-	router := handler.NewRouter(runner, cfg, svc, store, nil, nil, nil)
+	router := handler.NewRouter(cfg, svc, store, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/stacks", nil)
 	w := httptest.NewRecorder()
@@ -456,7 +469,6 @@ func TestStacksHandler_ExposeSyncMetadata(t *testing.T) {
 }
 
 func TestStacksHandler_SyncErrorExposed(t *testing.T) {
-	runner := &stubRunner{output: []byte("a\n")}
 	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
 
 	store := desiredstate.NewStore()
@@ -479,7 +491,7 @@ func TestStacksHandler_SyncErrorExposed(t *testing.T) {
 	svc := refresh.NewService(cfg, store, queue, nil)
 
 	gin.SetMode(gin.TestMode)
-	router := handler.NewRouter(runner, cfg, svc, store, nil, nil, nil)
+	router := handler.NewRouter(cfg, svc, store, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/stacks", nil)
 	w := httptest.NewRecorder()
@@ -509,7 +521,6 @@ func (s *stubReconciler) Reconcile(_ context.Context) []reconcile.Reconciliation
 }
 
 func TestAckHandler_Success(t *testing.T) {
-	runner := &stubRunner{output: []byte("a\n")}
 	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
 
 	store := desiredstate.NewStore()
@@ -522,7 +533,7 @@ func TestAckHandler_Success(t *testing.T) {
 	}}
 
 	gin.SetMode(gin.TestMode)
-	router := handler.NewRouter(runner, cfg, svc, store, ackStore, rec, nil)
+	router := handler.NewRouter(cfg, svc, store, ackStore, rec, nil, nil)
 
 	body := `{"stack_path": "app1"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/reconcile/ack", strings.NewReader(body))
@@ -543,7 +554,6 @@ func TestAckHandler_Success(t *testing.T) {
 }
 
 func TestAckHandler_MissingStackPath(t *testing.T) {
-	runner := &stubRunner{output: []byte("a\n")}
 	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
 
 	store := desiredstate.NewStore()
@@ -554,7 +564,7 @@ func TestAckHandler_MissingStackPath(t *testing.T) {
 	rec := &stubReconciler{}
 
 	gin.SetMode(gin.TestMode)
-	router := handler.NewRouter(runner, cfg, svc, store, ackStore, rec, nil)
+	router := handler.NewRouter(cfg, svc, store, ackStore, rec, nil, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/reconcile/ack", strings.NewReader(`{}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -583,7 +593,6 @@ func (s *stubScheduler) GetUpdateStatus() interface{} {
 }
 
 func TestTriggerUpdateHandler_Success(t *testing.T) {
-	runner := &stubRunner{output: []byte("a\n")}
 	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
 
 	store := desiredstate.NewStore()
@@ -592,7 +601,7 @@ func TestTriggerUpdateHandler_Success(t *testing.T) {
 	scheduler := &stubScheduler{}
 
 	gin.SetMode(gin.TestMode)
-	router := handler.NewRouter(runner, cfg, svc, store, nil, nil, scheduler)
+	router := handler.NewRouter(cfg, svc, store, nil, nil, scheduler, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/update", nil)
 	w := httptest.NewRecorder()
@@ -613,7 +622,6 @@ func TestTriggerUpdateHandler_Success(t *testing.T) {
 }
 
 func TestTriggerUpdateHandler_AlreadyRunning(t *testing.T) {
-	runner := &stubRunner{output: []byte("a\n")}
 	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
 
 	store := desiredstate.NewStore()
@@ -624,7 +632,7 @@ func TestTriggerUpdateHandler_AlreadyRunning(t *testing.T) {
 	}
 
 	gin.SetMode(gin.TestMode)
-	router := handler.NewRouter(runner, cfg, svc, store, nil, nil, scheduler)
+	router := handler.NewRouter(cfg, svc, store, nil, nil, scheduler, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/update", nil)
 	w := httptest.NewRecorder()
@@ -641,7 +649,6 @@ func TestTriggerUpdateHandler_AlreadyRunning(t *testing.T) {
 }
 
 func TestUpdateStatusHandler_NoUpdate(t *testing.T) {
-	runner := &stubRunner{output: []byte("a\n")}
 	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
 
 	store := desiredstate.NewStore()
@@ -650,7 +657,7 @@ func TestUpdateStatusHandler_NoUpdate(t *testing.T) {
 	scheduler := &stubScheduler{status: nil} // No active update
 
 	gin.SetMode(gin.TestMode)
-	router := handler.NewRouter(runner, cfg, svc, store, nil, nil, scheduler)
+	router := handler.NewRouter(cfg, svc, store, nil, nil, scheduler, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/update/status", nil)
 	w := httptest.NewRecorder()
@@ -667,7 +674,6 @@ func TestUpdateStatusHandler_NoUpdate(t *testing.T) {
 }
 
 func TestUpdateStatusHandler_UpdateInProgress(t *testing.T) {
-	runner := &stubRunner{output: []byte("a\n")}
 	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
 
 	store := desiredstate.NewStore()
@@ -678,7 +684,7 @@ func TestUpdateStatusHandler_UpdateInProgress(t *testing.T) {
 	}
 
 	gin.SetMode(gin.TestMode)
-	router := handler.NewRouter(runner, cfg, svc, store, nil, nil, scheduler)
+	router := handler.NewRouter(cfg, svc, store, nil, nil, scheduler, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/update/status", nil)
 	w := httptest.NewRecorder()
