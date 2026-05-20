@@ -16,11 +16,11 @@ type ReconcileRunner interface {
 }
 
 // NewRouter creates a Gin engine with all routes registered.
-func NewRouter(runner CommandRunner, cfg config.Config, refreshSvc *refresh.Service, store *desiredstate.Store, ackStore *reconcile.AckStore, reconciler ReconcileRunner, scheduler UpdateTrigger, broadcaster ...*desiredstate.Broadcaster) *gin.Engine {
+func NewRouter(cfg config.Config, refreshSvc *refresh.Service, store *desiredstate.Store, ackStore *reconcile.AckStore, reconciler ReconcileRunner, scheduler UpdateTrigger, api DockerAPI, broadcaster ...*desiredstate.Broadcaster) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
 
-	r.GET("/", RootHandler(runner, cfg))
+	r.GET("/", RootHandler(cfg, api))
 
 	// API routes
 	if refreshSvc != nil {

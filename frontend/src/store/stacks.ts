@@ -9,6 +9,20 @@ import { fetchRefreshStatus, fetchStacks } from '../services/api'
 import type { ConnectionState } from '../services/sse'
 import { SSEClient } from '../services/sse'
 
+export interface ImagePullStatus {
+  image: string
+  status: string
+  progress: string
+  done: boolean
+}
+
+export interface PullProgressState {
+  stack: string
+  images: ImagePullStatus[]
+  current: number
+  total: number
+}
+
 export const useStacksStore = defineStore('stacks', () => {
   // State
   const stackMap = ref<Map<string, StackRecord>>(new Map())
@@ -21,6 +35,7 @@ export const useStacksStore = defineStore('stacks', () => {
   // biome-ignore lint/suspicious/noExplicitAny: Progress type varies by event
   const updateProgress = ref<any>(null)
   const isUpdating = ref(false)
+  const pullProgress = ref<PullProgressState | null>(null)
 
   let sseClient: SSEClient | null = null
 
@@ -103,12 +118,49 @@ export const useStacksStore = defineStore('stacks', () => {
         updateProgress.value = progress
         if (progress.type === 'started') {
           isUpdating.value = true
-        } else if (progress.type === 'completed') {
-          isUpdating.value = false
-          // Clear progress after a short delay to show completion message
-          setTimeout(() => {
-            updateProgress.value = null
-          }, 3000)
+        } else if (progress.type === 'image_pull_progress') {
+          const isDone =
+            progress.status === 'Pull complete' ||
+            progress.status === 'Already exists' ||
+            progress.status === 'Download complete'
+
+          if (!pullProgress.value || pullProgress.value.stack !== progress.stack) {
+            pullProgress.value = {
+              stack: progress.stack,
+              images: [],
+              current: progress.current,
+              total: progress.total,
+            }
+          }
+
+          const existing = pullProgress.value.images.find((i) => i.image === progress.image)
+          if (existing) {
+            existing.status = progress.status
+            existing.progress = progress.progress ?? ''
+            existing.done = isDone
+          } else {
+            pullProgress.value.images.push({
+              image: progress.image,
+              status: progress.status,
+              progress: progress.progress ?? '',
+              done: isDone,
+            })
+          }
+          pullProgress.value.current = progress.current
+          pullProgress.value.total = progress.total
+        } else if (
+          progress.type === 'stack_success' ||
+          progress.type === 'stack_error' ||
+          progress.type === 'completed'
+        ) {
+          pullProgress.value = null
+          if (progress.type === 'completed') {
+            isUpdating.value = false
+            // Clear progress after a short delay to show completion message
+            setTimeout(() => {
+              updateProgress.value = null
+            }, 3000)
+          }
         }
       },
       onConnectionChange(state) {
@@ -147,6 +199,7 @@ export const useStacksStore = defineStore('stacks', () => {
     error,
     updateProgress,
     isUpdating,
+    pullProgress,
     // Getters
     stacks,
     filteredStacks,

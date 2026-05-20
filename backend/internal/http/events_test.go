@@ -18,11 +18,11 @@ import (
 )
 
 // setupRouterWithBroadcaster creates a router with SSE broadcaster wired up.
-func setupRouterWithBroadcaster(runner handler.CommandRunner, cfg config.Config, store *desiredstate.Store, broadcaster *desiredstate.Broadcaster) *gin.Engine {
+func setupRouterWithBroadcaster(cfg config.Config, store *desiredstate.Store, broadcaster *desiredstate.Broadcaster) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	queue := refresh.NewQueue()
 	svc := refresh.NewService(cfg, store, queue, nil)
-	return handler.NewRouter(runner, cfg, svc, store, nil, nil, nil, broadcaster)
+	return handler.NewRouter(cfg, svc, store, nil, nil, nil, nil, broadcaster)
 }
 
 // sseEvent holds a parsed SSE event.
@@ -62,7 +62,6 @@ func readSSEEvent(t *testing.T, scanner *bufio.Scanner) sseEvent {
 // TestEventsSSE_InitialSnapshot verifies the /api/events endpoint sends
 // SSE headers and an initial stack.snapshot event containing all current stacks.
 func TestEventsSSE_InitialSnapshot(t *testing.T) {
-	runner := &stubRunner{output: []byte("a\n")}
 	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
 
 	store := desiredstate.NewStore()
@@ -76,7 +75,7 @@ func TestEventsSSE_InitialSnapshot(t *testing.T) {
 	})
 
 	broadcaster := desiredstate.NewBroadcaster()
-	router := setupRouterWithBroadcaster(runner, cfg, store, broadcaster)
+	router := setupRouterWithBroadcaster(cfg, store, broadcaster)
 
 	ts := httptest.NewServer(router)
 	defer ts.Close()
@@ -141,7 +140,6 @@ func TestEventsSSE_InitialSnapshot(t *testing.T) {
 // TestEventsSSE_UpsertEvent verifies that publishing a stack.upsert event
 // reaches connected SSE clients.
 func TestEventsSSE_UpsertEvent(t *testing.T) {
-	runner := &stubRunner{output: []byte("a\n")}
 	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
 
 	store := desiredstate.NewStore()
@@ -151,7 +149,7 @@ func TestEventsSSE_UpsertEvent(t *testing.T) {
 	})
 
 	broadcaster := desiredstate.NewBroadcaster()
-	router := setupRouterWithBroadcaster(runner, cfg, store, broadcaster)
+	router := setupRouterWithBroadcaster(cfg, store, broadcaster)
 
 	ts := httptest.NewServer(router)
 	defer ts.Close()
@@ -205,12 +203,11 @@ func TestEventsSSE_UpsertEvent(t *testing.T) {
 
 // TestEventsSSE_EmptyStoreSnapshot verifies empty store sends empty records array.
 func TestEventsSSE_EmptyStoreSnapshot(t *testing.T) {
-	runner := &stubRunner{output: []byte("a\n")}
 	cfg := config.Config{Port: 8080, ProjectName: "Docker-CD", DockerSocket: "/var/run/docker.sock"}
 
 	store := desiredstate.NewStore()
 	broadcaster := desiredstate.NewBroadcaster()
-	router := setupRouterWithBroadcaster(runner, cfg, store, broadcaster)
+	router := setupRouterWithBroadcaster(cfg, store, broadcaster)
 
 	ts := httptest.NewServer(router)
 	defer ts.Close()

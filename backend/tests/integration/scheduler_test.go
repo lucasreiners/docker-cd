@@ -33,8 +33,7 @@ func TestSchedulerIntegration(t *testing.T) {
 
 	// Initialize dependencies
 	store := desiredstate.NewStore()
-	runner := &docker.ExecRunner{}
-	dockerClient := docker.NewClient(runner, cfg.DockerSocket)
+	dockerClient := docker.NewClient(nil)
 
 	// TODO: Setup test reconciler with proper dependencies
 	// This requires mocking or test containers
@@ -83,8 +82,7 @@ func TestSchedulerDisabled(t *testing.T) {
 	}
 
 	store := desiredstate.NewStore()
-	runner := &docker.ExecRunner{}
-	dockerClient := docker.NewClient(runner, cfg.DockerSocket)
+	dockerClient := docker.NewClient(nil)
 
 	schedulerSvc, err := scheduler.NewSchedulerService(cfg, logger, store, dockerClient, nil, nil)
 	if err != nil {
@@ -120,8 +118,7 @@ func TestCronExpressionValidation(t *testing.T) {
 			}
 
 			store := desiredstate.NewStore()
-			runner := &docker.ExecRunner{}
-			dockerClient := docker.NewClient(runner, cfg.DockerSocket)
+			dockerClient := docker.NewClient(nil)
 
 			schedulerSvc, err := scheduler.NewSchedulerService(cfg, logger, store, dockerClient, nil, nil)
 			if tt.shouldError && err == nil {
@@ -153,8 +150,7 @@ func TestSchedulerCustomSchedule(t *testing.T) {
 	}
 
 	store := desiredstate.NewStore()
-	runner := &docker.ExecRunner{}
-	dockerClient := docker.NewClient(runner, cfg.DockerSocket)
+	dockerClient := docker.NewClient(nil)
 
 	schedulerSvc, err := scheduler.NewSchedulerService(cfg, logger, store, dockerClient, nil, nil)
 	if err != nil {
@@ -188,8 +184,7 @@ func TestSchedulerLogging(t *testing.T) {
 	}
 
 	store := desiredstate.NewStore()
-	runner := &docker.ExecRunner{}
-	dockerClient := docker.NewClient(runner, cfg.DockerSocket)
+	dockerClient := docker.NewClient(nil)
 
 	schedulerSvc, err := scheduler.NewSchedulerService(cfg, logger, store, dockerClient, nil, nil)
 	if err != nil {

@@ -104,6 +104,62 @@
             :show-indicator="false"
             style="margin-top: 8px"
           />
+
+          <!-- Image Pull Progress -->
+          <template v-if="store.pullProgress">
+            <div class="pull-progress-section">
+              <div class="pull-progress-header">
+                <n-text strong style="font-size: 12px">
+                  Pulling images for
+                  <n-text code style="font-size: 11px">{{ store.pullProgress.stack }}</n-text>
+                </n-text>
+                <n-tag size="tiny" type="info" round>
+                  {{ store.pullProgress.current }}/{{ store.pullProgress.total }}
+                </n-tag>
+              </div>
+              <div
+                v-for="img in store.pullProgress.images"
+                :key="img.image"
+                class="pull-image-row"
+              >
+                <span class="pull-image-done">
+                  <svg
+                    v-if="img.done"
+                    viewBox="0 0 16 16"
+                    width="13"
+                    height="13"
+                    fill="var(--success-color, #18a058)"
+                  >
+                    <path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0z" />
+                  </svg>
+                  <svg
+                    v-else
+                    viewBox="0 0 16 16"
+                    width="13"
+                    height="13"
+                    fill="var(--info-color, #2080f0)"
+                    style="animation: spin 1s linear infinite"
+                  >
+                    <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 1.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11z" opacity=".3" />
+                    <path d="M8 1a7 7 0 0 1 7 7h-1.5A5.5 5.5 0 0 0 8 2.5V1z" />
+                  </svg>
+                </span>
+                <n-text code style="font-size: 11px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">
+                  {{ img.image }}
+                </n-text>
+                <n-text :depth="3" style="font-size: 11px; white-space: nowrap; margin-left: 6px">
+                  {{ img.done ? 'complete' : img.status }}
+                </n-text>
+                <n-text
+                  v-if="img.progress && !img.done"
+                  :depth="3"
+                  style="font-size: 10px; font-family: monospace; white-space: nowrap; margin-left: 6px; color: var(--info-color)"
+                >
+                  {{ img.progress }}
+                </n-text>
+              </div>
+            </div>
+          </template>
         </div>
         <n-button
           size="small"
@@ -419,5 +475,39 @@ function clearFilters() {
     flex-direction: column;
     align-items: stretch;
   }
+}
+
+.pull-progress-section {
+  margin-top: 10px;
+  border-top: 1px solid var(--border-color, rgba(128, 128, 128, 0.2));
+  padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pull-progress-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.pull-image-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.pull-image-done {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 </style>

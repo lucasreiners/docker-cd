@@ -41,7 +41,7 @@ func TestSmokeRootEndpoint(t *testing.T) {
 		DockerSocket: socketPath,
 	}
 
-	router := handler.NewRouter(runner, cfg, nil, nil, nil, nil, nil)
+	router := handler.NewRouter(cfg, nil, nil, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()
@@ -88,7 +88,7 @@ func TestSmokeAPIEndpoints(t *testing.T) {
 	queue := refresh.NewQueue()
 	svc := refresh.NewService(cfg, store, queue, nil)
 
-	router := handler.NewRouter(runner, cfg, svc, store, nil, nil, nil)
+	router := handler.NewRouter(cfg, svc, store, nil, nil, nil, nil)
 
 	t.Run("POST /api/refresh returns 200", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/refresh", nil)

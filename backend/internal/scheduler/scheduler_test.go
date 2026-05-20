@@ -3,11 +3,17 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/image"
 	"github.com/lucasreiners/docker-cd/internal/config"
 	"github.com/lucasreiners/docker-cd/internal/desiredstate"
 	"github.com/lucasreiners/docker-cd/internal/docker"
@@ -22,8 +28,7 @@ func TestNewSchedulerService_Disabled(t *testing.T) {
 	}
 
 	store := desiredstate.NewStore()
-	runner := &docker.ExecRunner{}
-	dockerClient := docker.NewClient(runner, cfg.DockerSocket)
+	dockerClient := docker.NewClient(nil)
 
 	svc, err := NewSchedulerService(cfg, logger, store, dockerClient, newTestReconciler(store), nil)
 	if err != nil {
@@ -57,8 +62,7 @@ func TestNewSchedulerService_ValidCron(t *testing.T) {
 			}
 
 			store := desiredstate.NewStore()
-			runner := &docker.ExecRunner{}
-			dockerClient := docker.NewClient(runner, cfg.DockerSocket)
+			dockerClient := docker.NewClient(nil)
 
 			svc, err := NewSchedulerService(cfg, logger, store, dockerClient, newTestReconciler(store), nil)
 			if err != nil {
@@ -98,8 +102,7 @@ func TestNewSchedulerService_InvalidCron(t *testing.T) {
 			}
 
 			store := desiredstate.NewStore()
-			runner := &docker.ExecRunner{}
-			dockerClient := docker.NewClient(runner, cfg.DockerSocket)
+			dockerClient := docker.NewClient(nil)
 
 			svc, err := NewSchedulerService(cfg, logger, store, dockerClient, newTestReconciler(store), nil)
 			if err != nil {
@@ -139,17 +142,11 @@ func TestNewSchedulerService_NilDependencies(t *testing.T) {
 // Mock CommandRunner for testing Docker client
 
 type mockRunner struct {
-	pullCalls     []pullCall
-	pruneCalls    int
-	pullError     error
-	pruneOut      string
-	pruneError    error
-	pullDelay     time.Duration     // Add delay to simulate slow operations
-	composeImages string            // output for "docker compose config --images"
-	imageDigests  map[string]string // image name -> digest for "docker inspect"
-	inspectCalls  []string          // track which images were inspected
-	configError   error             // error for "docker compose config --images"
-	inspectError  error             // error for "docker inspect"
+	pullDelay     time.Duration     // copied to mockDockerAPI
+	pullError     error             // copied to mockDockerAPI
+	imageDigests  map[string]string // image name -> digest (copied to mockDockerAPI)
+	inspectError  error             // error for inspect (copied to mockDockerAPI)
+	pruneError    error             // copied to mockDockerAPI
 }
 
 // Helper function to create a minimal reconciler for testing
@@ -180,80 +177,88 @@ func newTestReconciler(store *desiredstate.Store) *reconcile.Reconciler {
 	)
 }
 
-type pullCall struct {
-	name string
-	args []string
-}
-
 func (m *mockRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
-	// Check if it's a compose config --images command
-	if name == "docker" && containsArgs(args, "compose", "config", "--images") {
-		if m.configError != nil {
-			return nil, m.configError
-		}
-		out := m.composeImages
-		if out == "" {
-			out = "nginx:latest\n"
-		}
-		return []byte(out), nil
-	}
-
-	// Check if it's a compose pull command
-	if name == "docker" && containsArgs(args, "compose", "pull") {
-		if m.pullDelay > 0 {
-			time.Sleep(m.pullDelay)
-		}
-		m.pullCalls = append(m.pullCalls, pullCall{name: name, args: args})
-		return []byte{}, m.pullError
-	}
-
-	// Check if it's a docker inspect for image digest
-	if name == "docker" && containsArgs(args, "inspect") && containsArgs(args, "--format") {
-		// Extract image name (last argument)
-		imageName := args[len(args)-1]
-		m.inspectCalls = append(m.inspectCalls, imageName)
-		if m.inspectError != nil {
-			return nil, m.inspectError
-		}
-		if m.imageDigests != nil {
-			if digest, ok := m.imageDigests[imageName]; ok {
-				return []byte(digest + "\n"), nil
-			}
-		}
-		// Default digest
-		return []byte("sha256:default000\n"), nil
-	}
-
-	// Check if it's an image prune command
-	if name == "docker" && containsArgs(args, "image", "prune") {
-		m.pruneCalls++
-		if m.pruneError != nil {
-			return nil, m.pruneError
-		}
-		// Return realistic docker prune output
-		if m.pruneOut == "" {
-			m.pruneOut = "Total reclaimed space: 100MB\n"
-		}
-		return []byte(m.pruneOut), nil
-	}
-
 	return []byte{}, nil
 }
 
-func containsArgs(args []string, required ...string) bool {
-	for _, want := range required {
-		found := false
-		for _, arg := range args {
-			if arg == want {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
+// mockDockerAPI implements docker.DockerAPI for scheduler tests.
+type mockDockerAPI struct {
+	imageDigests map[string]string // image name -> digest
+	inspectCalls []string
+	inspectError error
+	pruneCalls   int
+	pruneError   error
+	pullError    error
+	pullDelay    time.Duration
+	pullCalls    int
+}
+
+func (m *mockDockerAPI) ContainerList(_ context.Context, _ container.ListOptions) ([]types.Container, error) {
+	return nil, nil
+}
+func (m *mockDockerAPI) ContainerInspect(_ context.Context, _ string) (types.ContainerJSON, error) {
+	return types.ContainerJSON{}, nil
+}
+func (m *mockDockerAPI) ImageInspectWithRaw(_ context.Context, imageID string) (types.ImageInspect, []byte, error) {
+	m.inspectCalls = append(m.inspectCalls, imageID)
+	if m.inspectError != nil {
+		return types.ImageInspect{}, nil, m.inspectError
+	}
+	if m.imageDigests != nil {
+		if digest, ok := m.imageDigests[imageID]; ok {
+			return types.ImageInspect{ID: digest}, nil, nil
 		}
 	}
-	return true
+	return types.ImageInspect{ID: "sha256:default000"}, nil, nil
+}
+func (m *mockDockerAPI) ImagePull(ctx context.Context, _ string, _ image.PullOptions) (io.ReadCloser, error) {
+	m.pullCalls++
+	if m.pullDelay > 0 {
+		select {
+		case <-time.After(m.pullDelay):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	if m.pullError != nil {
+		return nil, m.pullError
+	}
+	stream := `{"status":"Pull complete"}` + "\n"
+	return io.NopCloser(strings.NewReader(stream)), nil
+}
+func (m *mockDockerAPI) ImagesPrune(_ context.Context, _ filters.Args) (image.PruneReport, error) {
+	m.pruneCalls++
+	if m.pruneError != nil {
+		return image.PruneReport{}, m.pruneError
+	}
+	return image.PruneReport{SpaceReclaimed: 100000000}, nil // 100MB
+}
+
+// newMockAPIFromRunner creates a mockDockerAPI that mirrors a mockRunner's config.
+func newMockAPIFromRunner(mr *mockRunner) *mockDockerAPI {
+	return &mockDockerAPI{
+		imageDigests: mr.imageDigests,
+		inspectError: mr.inspectError,
+		pruneError:   mr.pruneError,
+		pullError:    mr.pullError,
+		pullDelay:    mr.pullDelay,
+	}
+}
+
+// sequentialMockAPI returns sequential digests from ImageInspectWithRaw.
+type sequentialMockAPI struct {
+	mockDockerAPI
+	inspectDigests []string
+	inspectIndex   *int
+}
+
+func (s *sequentialMockAPI) ImageInspectWithRaw(_ context.Context, imageID string) (types.ImageInspect, []byte, error) {
+	idx := *s.inspectIndex
+	*s.inspectIndex++
+	if idx < len(s.inspectDigests) {
+		return types.ImageInspect{ID: s.inspectDigests[idx]}, nil, nil
+	}
+	return types.ImageInspect{ID: "sha256:fallback"}, nil, nil
 }
 
 // TestTriggerUpdateCycle_Success verifies manual trigger starts update cycle and completes
@@ -277,9 +282,10 @@ func TestTriggerUpdateCycle_Success(t *testing.T) {
 	})
 
 	mockRun := &mockRunner{
-		pruneOut: "Total reclaimed space: 100MB\n",
+		
 	}
-	dockerClient := docker.NewClient(mockRun, cfg.DockerSocket)
+	api := newMockAPIFromRunner(mockRun)
+	dockerClient := docker.NewClient(api)
 	broadcaster := desiredstate.NewBroadcaster()
 
 	svc, err := NewSchedulerService(cfg, logger, store, dockerClient, newTestReconciler(store), broadcaster)
@@ -303,11 +309,11 @@ func TestTriggerUpdateCycle_Success(t *testing.T) {
 	}
 
 	// Verify Docker client was called
-	if len(mockRun.pullCalls) != 1 {
-		t.Errorf("Expected 1 pull call, got %d", len(mockRun.pullCalls))
+	if api.pullCalls != 1 {
+		t.Errorf("Expected 1 pull call, got %d", api.pullCalls)
 	}
-	if mockRun.pruneCalls != 1 {
-		t.Errorf("Expected 1 prune call, got %d", mockRun.pruneCalls)
+	if api.pruneCalls != 1 {
+		t.Errorf("Expected 1 prune call, got %d", api.pruneCalls)
 	}
 
 	// Events were published via broadcaster (can't easily verify in unit test without subscriber)
@@ -335,9 +341,8 @@ func TestTriggerUpdateCycle_AlreadyRunning(t *testing.T) {
 	// Simulate slow pull operation with delay
 	mockRun := &mockRunner{
 		pullDelay: 500 * time.Millisecond, // Add delay to keep update running
-		pruneOut:  "Total reclaimed space: 100MB\\n",
 	}
-	dockerClient := docker.NewClient(mockRun, cfg.DockerSocket)
+	dockerClient := docker.NewClient(newMockAPIFromRunner(mockRun))
 
 	svc, err := NewSchedulerService(cfg, logger, store, dockerClient, newTestReconciler(store), nil)
 	if err != nil {
@@ -385,7 +390,7 @@ func TestGetUpdateStatus(t *testing.T) {
 
 	store := desiredstate.NewStore()
 	mockRun := &mockRunner{}
-	dockerClient := docker.NewClient(mockRun, cfg.DockerSocket)
+	dockerClient := docker.NewClient(newMockAPIFromRunner(mockRun))
 
 	svc, err := NewSchedulerService(cfg, logger, store, dockerClient, newTestReconciler(store), nil)
 	if err != nil {
@@ -431,7 +436,7 @@ func TestExecuteUpdateCycle_EmptyStore(t *testing.T) {
 	// Store is empty (nil snapshot)
 
 	mockRun := &mockRunner{}
-	dockerClient := docker.NewClient(mockRun, cfg.DockerSocket)
+	dockerClient := docker.NewClient(newMockAPIFromRunner(mockRun))
 
 	svc, err := NewSchedulerService(cfg, logger, store, dockerClient, newTestReconciler(store), nil)
 	if err != nil {
@@ -476,7 +481,8 @@ func TestExecuteUpdateCycle_SkipFailedStacks(t *testing.T) {
 	})
 
 	mockRun := &mockRunner{}
-	dockerClient := docker.NewClient(mockRun, cfg.DockerSocket)
+	api := newMockAPIFromRunner(mockRun)
+	dockerClient := docker.NewClient(api)
 
 	svc, err := NewSchedulerService(cfg, logger, store, dockerClient, newTestReconciler(store), nil)
 	if err != nil {
@@ -487,8 +493,8 @@ func TestExecuteUpdateCycle_SkipFailedStacks(t *testing.T) {
 	svc.executeUpdateCycle(context.Background(), cycle)
 
 	// Should only process healthy-stack (failed-stack skipped)
-	if len(mockRun.pullCalls) != 1 {
-		t.Errorf("Expected 1 pull call (only healthy stack), got %d", len(mockRun.pullCalls))
+	if api.pullCalls != 1 {
+		t.Errorf("Expected 1 pull call (only healthy stack), got %d", api.pullCalls)
 	}
 
 	if cycle.StacksProcessed != 1 {
@@ -524,8 +530,9 @@ func TestExecuteUpdateCycle_ContinueOnError(t *testing.T) {
 
 	// First call fails, second succeeds - use errors slice
 	mockRun := &mockRunner{}
+	api := newMockAPIFromRunner(mockRun)
 
-	dockerClient := docker.NewClient(mockRun, cfg.DockerSocket)
+	dockerClient := docker.NewClient(api)
 
 	svc, err := NewSchedulerService(cfg, logger, store, dockerClient, newTestReconciler(store), nil)
 	if err != nil {
@@ -533,7 +540,7 @@ func TestExecuteUpdateCycle_ContinueOnError(t *testing.T) {
 	}
 
 	// Set pull error for only the first pull attempt
-	mockRun.pullError = errors.New("pull failed for stack1")
+	api.pullError = errors.New("pull failed for stack1")
 
 	cycle := NewUpdateCycle()
 
@@ -544,7 +551,7 @@ func TestExecuteUpdateCycle_ContinueOnError(t *testing.T) {
 		Content:     []byte("services:\n  web:\n    image: nginx\n"),
 		Status:      desiredstate.StackSyncSynced,
 	}
-	result1 := svc.updateStack(context.Background(), stack1)
+	result1 := svc.updateStack(context.Background(), stack1, nil)
 	if result1.Success {
 		t.Error("Expected stack1 to fail")
 	}
@@ -554,7 +561,7 @@ func TestExecuteUpdateCycle_ContinueOnError(t *testing.T) {
 	}
 
 	// Clear the error for the second stack
-	mockRun.pullError = nil
+	api.pullError = nil
 
 	// Manually run the second stack which will succeed
 	stack2 := desiredstate.StackRecord{
@@ -563,7 +570,7 @@ func TestExecuteUpdateCycle_ContinueOnError(t *testing.T) {
 		Content:     []byte("services:\n  web:\n    image: nginx\n"),
 		Status:      desiredstate.StackSyncSynced,
 	}
-	result2 := svc.updateStack(context.Background(), stack2)
+	result2 := svc.updateStack(context.Background(), stack2, nil)
 	if !result2.Success {
 		t.Errorf("Expected stack2 to succeed, got error: %v", result2.Error)
 	}
@@ -601,10 +608,8 @@ func TestExecuteUpdateCycle_EventBroadcasting(t *testing.T) {
 		}},
 	})
 
-	mockRun := &mockRunner{
-		pruneOut: "Total reclaimed space: 500MB\n",
-	}
-	dockerClient := docker.NewClient(mockRun, cfg.DockerSocket)
+	mockRun := &mockRunner{}
+	dockerClient := docker.NewClient(newMockAPIFromRunner(mockRun))
 	broadcaster := desiredstate.NewBroadcaster()
 
 	svc, err := NewSchedulerService(cfg, logger, store, dockerClient, newTestReconciler(store), broadcaster)
@@ -643,16 +648,12 @@ func TestUpdateStack_DigestComparison_ImageChanged(t *testing.T) {
 
 	// Simulate digest change: before pull returns old digest, after pull returns new.
 	callCount := 0
-	mockRun := &mockRunner{
-		composeImages: "nginx:latest\n",
-	}
-	wrapRunner := &sequentialInspectRunner{
-		inner:          mockRun,
+	seqAPI := &sequentialMockAPI{
 		inspectDigests: []string{"sha256:olddigest111", "sha256:newdigest222"},
 		inspectIndex:   &callCount,
 	}
 
-	dockerClient := docker.NewClient(wrapRunner, cfg.DockerSocket)
+	dockerClient := docker.NewClient(seqAPI)
 
 	svc, err := NewSchedulerService(cfg, logger, store, dockerClient, newTestReconciler(store), nil)
 	if err != nil {
@@ -666,7 +667,7 @@ func TestUpdateStack_DigestComparison_ImageChanged(t *testing.T) {
 		Status:      desiredstate.StackSyncSynced,
 	}
 
-	result := svc.updateStack(context.Background(), stack)
+	result := svc.updateStack(context.Background(), stack, nil)
 
 	if !result.Success {
 		t.Fatalf("Expected success, got error: %v", result.Error)
@@ -713,17 +714,13 @@ func TestUpdateStack_DigestComparison_NoChange(t *testing.T) {
 
 	// Same digest before and after pull — no change.
 	callCount := 0
-	mockRun := &mockRunner{
-		composeImages: "nginx:latest\n",
-	}
 	sameDigest := "sha256:unchanged999"
-	wrapRunner := &sequentialInspectRunner{
-		inner:          mockRun,
+	seqAPI := &sequentialMockAPI{
 		inspectDigests: []string{sameDigest, sameDigest},
 		inspectIndex:   &callCount,
 	}
 
-	dockerClient := docker.NewClient(wrapRunner, cfg.DockerSocket)
+	dockerClient := docker.NewClient(seqAPI)
 
 	svc, err := NewSchedulerService(cfg, logger, store, dockerClient, newTestReconciler(store), nil)
 	if err != nil {
@@ -737,7 +734,7 @@ func TestUpdateStack_DigestComparison_NoChange(t *testing.T) {
 		Status:      desiredstate.StackSyncSynced,
 	}
 
-	result := svc.updateStack(context.Background(), stack)
+	result := svc.updateStack(context.Background(), stack, nil)
 
 	if !result.Success {
 		t.Fatalf("Expected success, got error: %v", result.Error)
@@ -776,19 +773,15 @@ func TestUpdateStack_DigestComparison_MultipleImages(t *testing.T) {
 	// nginx changes, postgres stays the same.
 	// Inspect order: nginx(before), postgres(before), nginx(after), postgres(after)
 	callCount := 0
-	mockRun := &mockRunner{
-		composeImages: "nginx:latest\npostgres:16\n",
-	}
-	wrapRunner := &sequentialInspectRunner{
-		inner: mockRun,
+	seqAPI := &sequentialMockAPI{
 		inspectDigests: []string{
-			"sha256:nginx_old", "sha256:pg_same", // before pull
-			"sha256:nginx_new", "sha256:pg_same", // after pull
+			"sha256:nginx_old", "sha256:pg_same",
+			"sha256:nginx_new", "sha256:pg_same",
 		},
 		inspectIndex: &callCount,
 	}
 
-	dockerClient := docker.NewClient(wrapRunner, cfg.DockerSocket)
+	dockerClient := docker.NewClient(seqAPI)
 
 	svc, err := NewSchedulerService(cfg, logger, store, dockerClient, newTestReconciler(store), nil)
 	if err != nil {
@@ -802,7 +795,7 @@ func TestUpdateStack_DigestComparison_MultipleImages(t *testing.T) {
 		Status:      desiredstate.StackSyncSynced,
 	}
 
-	result := svc.updateStack(context.Background(), stack)
+	result := svc.updateStack(context.Background(), stack, nil)
 
 	if !result.Success {
 		t.Fatalf("Expected success, got error: %v", result.Error)
@@ -856,11 +849,11 @@ func TestUpdateStack_DigestComparison_InspectFailure(t *testing.T) {
 	})
 
 	mockRun := &mockRunner{
-		composeImages: "nginx:latest\n",
+		
 		inspectError:  errors.New("inspect failed"),
 	}
 
-	dockerClient := docker.NewClient(mockRun, cfg.DockerSocket)
+	dockerClient := docker.NewClient(newMockAPIFromRunner(mockRun))
 
 	svc, err := NewSchedulerService(cfg, logger, store, dockerClient, newTestReconciler(store), nil)
 	if err != nil {
@@ -874,7 +867,7 @@ func TestUpdateStack_DigestComparison_InspectFailure(t *testing.T) {
 		Status:      desiredstate.StackSyncSynced,
 	}
 
-	result := svc.updateStack(context.Background(), stack)
+	result := svc.updateStack(context.Background(), stack, nil)
 
 	// Should still succeed — inspect failure is non-fatal, just triggers reconcile as fallback
 	if !result.Success {
@@ -885,30 +878,28 @@ func TestUpdateStack_DigestComparison_InspectFailure(t *testing.T) {
 	}
 }
 
-// TestUpdateStack_ConfigImagesFailure verifies graceful handling
-// when getting compose images fails (should still pull and reconcile).
-func TestUpdateStack_ConfigImagesFailure(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+// TestUpdateStack_EmptyContentFallback verifies graceful handling
+// when stack content has no images (equivalent to old config --images failure).
+func TestUpdateStack_EmptyContentFallback(t *testing.T) {
 	cfg := config.Config{
 		UpdaterEnabled: true,
 		UpdaterCron:    "0 3 * * *",
 	}
 
+	logger := slog.Default()
 	store := desiredstate.NewStore()
 	store.Set(&desiredstate.Snapshot{
 		Stacks: []desiredstate.StackRecord{{
 			Path:        "test-stack",
 			ComposeFile: "docker-compose.yml",
-			Content:     []byte("services:\n  web:\n    image: nginx:latest\n"),
+			Content:     []byte(""),
 			Status:      desiredstate.StackSyncSynced,
 		}},
 	})
 
-	mockRun := &mockRunner{
-		configError: errors.New("config --images failed"),
-	}
+	mockRun := &mockRunner{}
 
-	dockerClient := docker.NewClient(mockRun, cfg.DockerSocket)
+	dockerClient := docker.NewClient(newMockAPIFromRunner(mockRun))
 
 	svc, err := NewSchedulerService(cfg, logger, store, dockerClient, newTestReconciler(store), nil)
 	if err != nil {
@@ -918,38 +909,121 @@ func TestUpdateStack_ConfigImagesFailure(t *testing.T) {
 	stack := desiredstate.StackRecord{
 		Path:        "test-stack",
 		ComposeFile: "docker-compose.yml",
-		Content:     []byte("services:\n  web:\n    image: nginx:latest\n"),
+		Content:     []byte(""),
 		Status:      desiredstate.StackSyncSynced,
 	}
 
-	result := svc.updateStack(context.Background(), stack)
+	result := svc.updateStack(context.Background(), stack, nil)
 
-	// Should still succeed — config failure is non-fatal, just triggers reconcile as fallback
+	// Should still succeed — empty content triggers unconditional reconcile
 	if !result.Success {
-		t.Fatalf("Expected success even with config failure, got error: %v", result.Error)
+		t.Fatalf("Expected success even with empty content, got error: %v", result.Error)
 	}
 	if !result.ReconcileTriggered {
-		t.Error("Expected reconciliation to be triggered as fallback when config --images fails")
+		t.Error("Expected reconciliation to be triggered as fallback when no images found")
 	}
 }
 
-// sequentialInspectRunner wraps a mockRunner but returns sequential digests for inspect calls.
-type sequentialInspectRunner struct {
-	inner          *mockRunner
-	inspectDigests []string
-	inspectIndex   *int
+// --- CancelActiveUpdate tests ---
+
+// blockingMockAPI blocks on ImagePull until context is cancelled.
+type blockingMockAPI struct {
+	mockDockerAPI
+	pullStarted chan struct{} // closed when pull begins
 }
 
-func (s *sequentialInspectRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
-	// Intercept docker inspect calls for digest lookups
-	if name == "docker" && containsArgs(args, "inspect") && containsArgs(args, "--format") {
-		idx := *s.inspectIndex
-		*s.inspectIndex++
-		if idx < len(s.inspectDigests) {
-			return []byte(s.inspectDigests[idx] + "\n"), nil
+func (b *blockingMockAPI) ImagePull(ctx context.Context, _ string, _ image.PullOptions) (io.ReadCloser, error) {
+	select {
+	case <-b.pullStarted:
+	default:
+		close(b.pullStarted)
+	}
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func TestCancelActiveUpdate_CancelsRunningCycle(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	cfg := config.Config{
+		UpdaterEnabled: true,
+		UpdaterCron:    "0 3 * * *",
+	}
+
+	store := desiredstate.NewStore()
+	store.Set(&desiredstate.Snapshot{
+		RefreshStatus: desiredstate.RefreshStatusCompleted,
+		Stacks: []desiredstate.StackRecord{{
+			Path:        "test-stack",
+			ComposeFile: "docker-compose.yml",
+			Content:     []byte("services:\n  web:\n    image: nginx\n"),
+			Status:      desiredstate.StackSyncSynced,
+		}},
+	})
+
+	inner := &mockRunner{
+		imageDigests:  map[string]string{"nginx": "sha256:aaa"},
+	}
+	blockingAPI := &blockingMockAPI{
+		mockDockerAPI: mockDockerAPI{
+			imageDigests: inner.imageDigests,
+		},
+		pullStarted: make(chan struct{}),
+	}
+	dockerClient := docker.NewClient(blockingAPI)
+
+	svc, err := NewSchedulerService(cfg, logger, store, dockerClient, newTestReconciler(store), nil)
+	if err != nil {
+		t.Fatalf("Failed to create scheduler: %v", err)
+	}
+
+	err = svc.TriggerUpdateCycle(context.Background())
+	if err != nil {
+		t.Fatalf("TriggerUpdateCycle failed: %v", err)
+	}
+
+	// Wait for pull to start
+	select {
+	case <-blockingAPI.pullStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("pull did not start in time")
+	}
+
+	// Cancel the active update
+	svc.CancelActiveUpdate()
+
+	// Wait for cycle to complete (activeUpdate cleared)
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("update cycle did not terminate after cancel")
+		default:
 		}
-		return []byte("sha256:fallback\n"), nil
+		svc.mu.Lock()
+		active := svc.activeUpdate
+		svc.mu.Unlock()
+		if active == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	// Delegate everything else to inner runner
-	return s.inner.Run(ctx, name, args...)
+}
+
+func TestCancelActiveUpdate_SafeWhenNoCycleActive(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	cfg := config.Config{
+		UpdaterEnabled: true,
+		UpdaterCron:    "0 3 * * *",
+	}
+
+	store := desiredstate.NewStore()
+	dockerClient := docker.NewClient(nil)
+
+	svc, err := NewSchedulerService(cfg, logger, store, dockerClient, newTestReconciler(store), nil)
+	if err != nil {
+		t.Fatalf("Failed to create scheduler: %v", err)
+	}
+
+	// Should not panic
+	svc.CancelActiveUpdate()
 }

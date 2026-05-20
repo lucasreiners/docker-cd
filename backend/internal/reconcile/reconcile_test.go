@@ -879,3 +879,77 @@ func TestReconcile_NoOp_MultipleStacksInSync(t *testing.T) {
 		t.Errorf("expected 0 compose down calls, got %d", len(compose.downCalls))
 	}
 }
+
+// --- CancelActive tests ---
+
+// blockingComposeRunner blocks ComposeUp until the context is cancelled.
+type blockingComposeRunner struct {
+	upStarted chan struct{} // closed when ComposeUp begins
+}
+
+func (b *blockingComposeRunner) ComposeUp(ctx context.Context, _, _, _, _ string) error {
+	close(b.upStarted)
+	<-ctx.Done()
+	return ctx.Err()
+}
+func (b *blockingComposeRunner) ComposeDown(_ context.Context, _, _, _ string) error { return nil }
+func (b *blockingComposeRunner) ComposePs(_ context.Context, _ string) ([]desiredstate.ContainerInfo, error) {
+	return nil, nil
+}
+
+func TestCancelActive_CancelsRunningReconcile(t *testing.T) {
+	store := desiredstate.NewStore()
+	composeContent := []byte("services:\n  web:\n    image: nginx\n")
+	store.Set(&desiredstate.Snapshot{
+		Revision:      "rev1",
+		CommitMessage: "deploy",
+		RefreshStatus: desiredstate.RefreshStatusCompleted,
+		Stacks: []desiredstate.StackRecord{
+			{Path: "app1", ComposeFile: "docker-compose.yml", ComposeHash: "h1", Status: desiredstate.StackSyncMissing, Content: composeContent},
+		},
+	})
+
+	compose := &blockingComposeRunner{upStarted: make(chan struct{})}
+	inspector := &stubInspector{labels: map[string]reconcile.StackSyncMetadata{}}
+	sm := newTestStateManager(store, compose)
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), sm, slog.Default())
+
+	done := make(chan []reconcile.ReconciliationRun, 1)
+	go func() {
+		done <- r.Reconcile(context.Background())
+	}()
+
+	// Wait for ComposeUp to start
+	select {
+	case <-compose.upStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("ComposeUp did not start in time")
+	}
+
+	// Cancel the active reconciliation
+	r.CancelActive()
+
+	// Reconcile should return with a failure
+	select {
+	case runs := <-done:
+		if len(runs) != 1 {
+			t.Fatalf("expected 1 run, got %d", len(runs))
+		}
+		if runs[0].Result != "failed" {
+			t.Errorf("expected failed result after cancel, got %q", runs[0].Result)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Reconcile did not return after CancelActive")
+	}
+}
+
+func TestCancelActive_SafeWhenNoReconcileActive(t *testing.T) {
+	store := desiredstate.NewStore()
+	compose := &stubComposeRunner{}
+	inspector := &stubInspector{labels: map[string]reconcile.StackSyncMetadata{}}
+	sm := newTestStateManager(store, compose)
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), sm, slog.Default())
+
+	// Should not panic
+	r.CancelActive()
+}

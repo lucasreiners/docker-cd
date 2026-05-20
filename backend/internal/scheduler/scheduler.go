@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -352,7 +350,25 @@ func (s *SchedulerService) executeUpdateCycle(ctx context.Context, cycle *Update
 			})
 		}
 
-		result := s.updateStack(ctx, stack)
+		// Build per-image pull progress callback for SSE
+		var onPullProgress docker.PullProgressFn
+		if s.broadcaster != nil {
+			onPullProgress = func(p docker.PullProgress) {
+				s.broadcaster.PublishUpdateProgress(map[string]interface{}{
+					"type":      "image_pull_progress",
+					"cycle_id":  cycle.CycleID,
+					"stack":     stack.Path,
+					"image":     p.Image,
+					"status":    p.Status,
+					"progress":  p.Progress,
+					"current":   p.Current,
+					"total":     p.Total,
+					"timestamp": time.Now(),
+				})
+			}
+		}
+
+		result := s.updateStack(ctx, stack, onPullProgress)
 		cycle.StacksProcessed++
 
 		if !result.Success {
@@ -450,7 +466,7 @@ func (s *SchedulerService) CancelActiveUpdate() {
 }
 
 // updateStack updates a single stack (T014-T016)
-func (s *SchedulerService) updateStack(ctx context.Context, stack desiredstate.StackRecord) StackUpdateResult {
+func (s *SchedulerService) updateStack(ctx context.Context, stack desiredstate.StackRecord, onPullProgress docker.PullProgressFn) StackUpdateResult {
 	result := StackUpdateResult{
 		StackName:   stack.Path,
 		ProjectName: stack.Path, // Use path as project name
@@ -459,17 +475,11 @@ func (s *SchedulerService) updateStack(ctx context.Context, stack desiredstate.S
 
 	s.logger.Info("updating stack", "stack", stack.Path)
 
-	deployDir := strings.Trim(s.config.GitDeployDir, "/")
-	stackDir := filepath.Join(s.repoPath, deployDir, stack.Path)
-	composePath := filepath.Join(stackDir, stack.ComposeFile)
-
 	// Get list of images in compose file (T015)
-	images, err := s.dockerClient.GetComposeImages(ctx, result.ProjectName, composePath, stackDir)
-	if err != nil {
-		s.logger.Warn("failed to list compose images, will reconcile unconditionally",
-			"stack", stack.Path,
-			"error", err)
-		images = nil // proceed without digest comparison
+	images := reconcile.ExtractComposeImages(stack.Content)
+	if len(images) == 0 {
+		s.logger.Warn("no images found in compose content, will reconcile unconditionally",
+			"stack", stack.Path)
 	}
 
 	// Get image digests before pull (T015)
@@ -493,7 +503,7 @@ func (s *SchedulerService) updateStack(ctx context.Context, stack desiredstate.S
 	}
 
 	// Pull images (T014)
-	err = s.dockerClient.PullImages(ctx, result.ProjectName, composePath, stackDir)
+	err := s.dockerClient.PullImages(ctx, images, onPullProgress)
 	result.PullEndTime = time.Now()
 
 	if err != nil {
