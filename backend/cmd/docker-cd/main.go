@@ -118,7 +118,7 @@ func main() {
 	driftDetector := reconcile.NewDriftDetector(cfg.GitDeployDir, logger)
 	stateManager := reconcile.NewStateManager(store, composeRunner, eventBus, logger)
 
-	reconciler := reconcile.NewReconciler(store, policy, composeRunner, inspector, ackStore, cfg.GitDeployDir, driftDetector, stateManager, logger)
+	reconciler := reconcile.NewReconciler(store, policy, composeRunner, inspector, ackStore, cfg.GitDeployDir, driftDetector, stateManager, logger, &dockerImagePuller{client: dockerClient}, broadcaster)
 
 	// Wire reconciler into refresh pipeline
 	refreshSvc.SetReconcileFunc(func(ctx context.Context) {
@@ -256,4 +256,25 @@ func setupEventHandlers(eventBus *events.EventBus, broadcaster *desiredstate.Bro
 		}
 		return nil
 	})
+}
+
+// dockerImagePuller adapts docker.Client to reconcile.ImagePuller.
+type dockerImagePuller struct {
+	client *docker.Client
+}
+
+func (d *dockerImagePuller) PullImages(ctx context.Context, images []string, onProgress reconcile.PullProgressFn) error {
+	var dockerProgress docker.PullProgressFn
+	if onProgress != nil {
+		dockerProgress = func(p docker.PullProgress) {
+			onProgress(reconcile.PullProgress{
+				Image:    p.Image,
+				Status:   p.Status,
+				Progress: p.Progress,
+				Current:  p.Current,
+				Total:    p.Total,
+			})
+		}
+	}
+	return d.client.PullImages(ctx, images, dockerProgress)
 }
