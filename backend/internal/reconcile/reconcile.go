@@ -22,6 +22,23 @@ type ComposeRunner interface {
 	ComposePs(ctx context.Context, projectName string) ([]desiredstate.ContainerInfo, error)
 }
 
+// PullProgress reports per-image pull status.
+type PullProgress struct {
+	Image    string
+	Status   string
+	Progress string
+	Current  int
+	Total    int
+}
+
+// PullProgressFn is called with pull progress updates.
+type PullProgressFn func(PullProgress)
+
+// ImagePuller pulls container images with progress reporting.
+type ImagePuller interface {
+	PullImages(ctx context.Context, images []string, onProgress PullProgressFn) error
+}
+
 // ContainerInspector reads runtime container labels.
 type ContainerInspector interface {
 	// GetStackLabels returns sync metadata labels grouped by stack path.
@@ -64,6 +81,8 @@ type Reconciler struct {
 	deployDir     string
 	driftDetector *DriftDetector
 	stateManager  *StateManager
+	imagePuller   ImagePuller
+	broadcaster   *desiredstate.Broadcaster
 	logger        *slog.Logger
 }
 
@@ -78,6 +97,8 @@ func NewReconciler(
 	driftDetector *DriftDetector,
 	stateManager *StateManager,
 	logger *slog.Logger,
+	imagePuller ImagePuller,
+	broadcaster *desiredstate.Broadcaster,
 ) *Reconciler {
 	return &Reconciler{
 		store:         store,
@@ -88,6 +109,8 @@ func NewReconciler(
 		deployDir:     deployDir,
 		driftDetector: driftDetector,
 		stateManager:  stateManager,
+		imagePuller:   imagePuller,
+		broadcaster:   broadcaster,
 		logger:        logger,
 	}
 }
@@ -283,6 +306,37 @@ func (r *Reconciler) syncStack(ctx context.Context, drift DriftResult, snap *des
 		return run
 	}
 	defer cleanup()
+
+	// Explicitly pull images with progress reporting before compose up.
+	// When imagePuller is nil, ComposeUp will pull images implicitly (no progress).
+	if r.imagePuller != nil {
+		images := ExtractComposeImages(stack.Content)
+		if len(images) > 0 {
+			var onProgress PullProgressFn
+			if r.broadcaster != nil {
+				onProgress = func(p PullProgress) {
+					r.broadcaster.PublishUpdateProgress(map[string]interface{}{
+						"type":      "image_pull_progress",
+						"stack":     drift.Path,
+						"image":     p.Image,
+						"status":    p.Status,
+						"progress":  p.Progress,
+						"current":   p.Current,
+						"total":     p.Total,
+						"timestamp": time.Now(),
+					})
+				}
+			}
+			if err := r.imagePuller.PullImages(ctx, images, onProgress); err != nil {
+				run.Result = "failed"
+				run.Error = fmt.Sprintf("image pull failed: %v", err)
+				run.FinishedAt = time.Now()
+				r.logger.Error("image pull failed", "stack_path", drift.Path, "error", err)
+				r.stateManager.UpdateStatus(drift.Path, desiredstate.StackSyncFailed, "", truncateError(run.Error))
+				return run
+			}
+		}
+	}
 
 	// Run docker compose up
 	// workDir is set to the stack path so Docker Compose resolves relative

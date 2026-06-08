@@ -718,6 +718,7 @@ func newDindReconciler(
 		reconcile.NewDriftDetector("", logger),
 		reconcile.NewStateManager(store, composeRunner, nil, logger),
 		logger,
+		nil, nil,
 	)
 }
 

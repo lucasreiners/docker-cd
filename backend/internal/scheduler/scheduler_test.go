@@ -174,6 +174,7 @@ func newTestReconciler(store *desiredstate.Store) *reconcile.Reconciler {
 		nil, // driftDetector — not needed for ReconcileStack path
 		sm,
 		slog.Default(),
+		nil, nil,
 	)
 }
 

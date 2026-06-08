@@ -43,6 +43,13 @@ frontend/node_modules/
 frontend/dist/
 frontend/coverage/
 
+# E2E tests
+tests/e2e/node_modules/
+tests/e2e/test-results/
+
+# Node
+package-lock.json
+
 # Backend coverage
 backend/coverage.html
 backend/coverage.out
@@ -50,3 +57,6 @@ backend/coverage.out
 # Temporary
 *.tmp
 *.log
+
+# LEAD agent state
+.lead/state.json

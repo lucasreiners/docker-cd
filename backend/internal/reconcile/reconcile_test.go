@@ -253,7 +253,7 @@ func TestReconcile_DriftedStack_Synced(t *testing.T) {
 	compose := &stubComposeRunner{}
 	inspector := &stubInspector{labels: map[string]reconcile.StackSyncMetadata{}}
 
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default(), nil, nil)
 	runs := r.Reconcile(context.Background())
 
 	if len(runs) != 1 {
@@ -302,7 +302,7 @@ func TestReconcile_AlreadySynced_NoOp(t *testing.T) {
 		},
 	}
 
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default(), nil, nil)
 	runs := r.Reconcile(context.Background())
 
 	if len(runs) != 0 {
@@ -326,7 +326,7 @@ func TestReconcile_Disabled(t *testing.T) {
 	compose := &stubComposeRunner{}
 	inspector := &stubInspector{labels: map[string]reconcile.StackSyncMetadata{}}
 
-	r := reconcile.NewReconciler(store, policy, compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
+	r := reconcile.NewReconciler(store, policy, compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default(), nil, nil)
 	runs := r.Reconcile(context.Background())
 
 	if runs != nil {
@@ -348,7 +348,7 @@ func TestReconcile_ComposeUpFailure(t *testing.T) {
 	compose := &stubComposeRunner{upErr: fmt.Errorf("image not found")}
 	inspector := &stubInspector{labels: map[string]reconcile.StackSyncMetadata{}}
 
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default(), nil, nil)
 	runs := r.Reconcile(context.Background())
 
 	if len(runs) != 1 {
@@ -393,7 +393,7 @@ func TestReconcile_DriftPolicy_Flag_NoAck(t *testing.T) {
 	compose := &stubComposeRunner{}
 	inspector := &stubInspector{labels: map[string]reconcile.StackSyncMetadata{}}
 
-	r := reconcile.NewReconciler(store, policy, compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
+	r := reconcile.NewReconciler(store, policy, compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default(), nil, nil)
 	runs := r.Reconcile(context.Background())
 
 	// No runs should execute without acknowledgement
@@ -424,7 +424,7 @@ func TestReconcile_DriftPolicy_Flag_WithAck(t *testing.T) {
 	ackStore := reconcile.NewAckStore()
 	ackStore.Acknowledge("app1")
 
-	r := reconcile.NewReconciler(store, policy, compose, inspector, ackStore, "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
+	r := reconcile.NewReconciler(store, policy, compose, inspector, ackStore, "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default(), nil, nil)
 	runs := r.Reconcile(context.Background())
 
 	if len(runs) != 1 {
@@ -454,7 +454,7 @@ func TestReconcile_DriftPolicy_Revert(t *testing.T) {
 	compose := &stubComposeRunner{}
 	inspector := &stubInspector{labels: map[string]reconcile.StackSyncMetadata{}}
 
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default(), nil, nil)
 	runs := r.Reconcile(context.Background())
 
 	// Revert mode should auto-reconcile without ack
@@ -483,7 +483,7 @@ func TestReconcile_ConcurrencyMutex(t *testing.T) {
 	// Inspector that updates after first sync (simulating containers getting labels)
 	inspector := &dynamicInspector{}
 
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default(), nil, nil)
 
 	// Run reconcile — first should sync
 	runs1 := r.Reconcile(context.Background())
@@ -519,7 +519,7 @@ func TestReconcile_CachePreservedOnFailure(t *testing.T) {
 	compose := &stubComposeRunner{upErr: fmt.Errorf("deploy failed")}
 	inspector := &stubInspector{labels: map[string]reconcile.StackSyncMetadata{}}
 
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default(), nil, nil)
 	r.Reconcile(context.Background())
 
 	// Desired state cache should be intact
@@ -572,7 +572,7 @@ func TestReconciliationRun_Timestamps(t *testing.T) {
 	inspector := &stubInspector{labels: map[string]reconcile.StackSyncMetadata{}}
 
 	before := time.Now()
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default(), nil, nil)
 	runs := r.Reconcile(context.Background())
 	after := time.Now()
 
@@ -605,7 +605,7 @@ func TestReconcile_MultipleStacks_Sequential(t *testing.T) {
 	compose := &stubComposeRunner{}
 	inspector := &stubInspector{labels: map[string]reconcile.StackSyncMetadata{}}
 
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default(), nil, nil)
 	runs := r.Reconcile(context.Background())
 
 	if len(runs) != 3 {
@@ -643,7 +643,7 @@ func TestReconcile_RemoveStack(t *testing.T) {
 		},
 	}
 
-	r := reconcile.NewReconciler(store, policy, compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
+	r := reconcile.NewReconciler(store, policy, compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default(), nil, nil)
 	runs := r.Reconcile(context.Background())
 
 	if len(runs) != 1 {
@@ -674,7 +674,7 @@ func TestReconcile_RemoveDisabled_Skips(t *testing.T) {
 		},
 	}
 
-	r := reconcile.NewReconciler(store, policy, compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
+	r := reconcile.NewReconciler(store, policy, compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default(), nil, nil)
 	runs := r.Reconcile(context.Background())
 
 	if len(runs) != 0 {
@@ -702,7 +702,7 @@ func TestReconcileStack_Success(t *testing.T) {
 	compose := &stubComposeRunner{}
 	inspector := &stubInspector{labels: map[string]reconcile.StackSyncMetadata{}}
 
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default(), nil, nil)
 	run := r.ReconcileStack(context.Background(), "app1")
 
 	if run.Result != "success" {
@@ -729,7 +729,7 @@ func TestReconcileStack_NilSnapshot(t *testing.T) {
 	compose := &stubComposeRunner{}
 	inspector := &stubInspector{labels: map[string]reconcile.StackSyncMetadata{}}
 
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default(), nil, nil)
 	run := r.ReconcileStack(context.Background(), "app1")
 
 	if run.Result != "failed" {
@@ -757,7 +757,7 @@ func TestReconcileStack_StackNotFound(t *testing.T) {
 	compose := &stubComposeRunner{}
 	inspector := &stubInspector{labels: map[string]reconcile.StackSyncMetadata{}}
 
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default(), nil, nil)
 	run := r.ReconcileStack(context.Background(), "nonexistent-stack")
 
 	if run.Result != "failed" {
@@ -785,7 +785,7 @@ func TestReconcileStack_ComposeUpFailure(t *testing.T) {
 	compose := &stubComposeRunner{upErr: fmt.Errorf("connection refused")}
 	inspector := &stubInspector{labels: map[string]reconcile.StackSyncMetadata{}}
 
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default(), nil, nil)
 	run := r.ReconcileStack(context.Background(), "app1")
 
 	if run.Result != "failed" {
@@ -822,7 +822,7 @@ func TestReconcileStack_BypassesDriftDetection(t *testing.T) {
 		},
 	}
 
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default(), nil, nil)
 
 	// Verify Reconcile() would skip this stack (it's in sync)
 	runs := r.Reconcile(context.Background())
@@ -866,7 +866,7 @@ func TestReconcile_NoOp_MultipleStacksInSync(t *testing.T) {
 		},
 	}
 
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default())
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default(), nil, nil)
 	runs := r.Reconcile(context.Background())
 
 	if len(runs) != 0 {
@@ -912,7 +912,7 @@ func TestCancelActive_CancelsRunningReconcile(t *testing.T) {
 	compose := &blockingComposeRunner{upStarted: make(chan struct{})}
 	inspector := &stubInspector{labels: map[string]reconcile.StackSyncMetadata{}}
 	sm := newTestStateManager(store, compose)
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), sm, slog.Default())
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), sm, slog.Default(), nil, nil)
 
 	done := make(chan []reconcile.ReconciliationRun, 1)
 	go func() {
@@ -948,8 +948,119 @@ func TestCancelActive_SafeWhenNoReconcileActive(t *testing.T) {
 	compose := &stubComposeRunner{}
 	inspector := &stubInspector{labels: map[string]reconcile.StackSyncMetadata{}}
 	sm := newTestStateManager(store, compose)
-	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), sm, slog.Default())
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), sm, slog.Default(), nil, nil)
 
 	// Should not panic
 	r.CancelActive()
+}
+
+// --- ImagePuller tests ---
+
+type stubImagePuller struct {
+	pullCalls [][]string
+	pullErr   error
+}
+
+func (s *stubImagePuller) PullImages(_ context.Context, images []string, onProgress reconcile.PullProgressFn) error {
+	s.pullCalls = append(s.pullCalls, images)
+	if onProgress != nil {
+		for i, img := range images {
+			onProgress(reconcile.PullProgress{Image: img, Status: "Pull complete", Current: i + 1, Total: len(images)})
+		}
+	}
+	return s.pullErr
+}
+
+func TestReconcile_WithImagePuller_PullsBeforeComposeUp(t *testing.T) {
+	store := desiredstate.NewStore()
+	composeContent := []byte("services:\n  web:\n    image: nginx:alpine\n")
+	store.Set(&desiredstate.Snapshot{
+		Revision:      "rev1",
+		CommitMessage: "deploy",
+		RefreshStatus: desiredstate.RefreshStatusCompleted,
+		Stacks: []desiredstate.StackRecord{
+			{Path: "app1", ComposeFile: "docker-compose.yml", ComposeHash: "h1", Status: desiredstate.StackSyncMissing, Content: composeContent},
+		},
+	})
+
+	compose := &stubComposeRunner{}
+	inspector := &stubInspector{labels: map[string]reconcile.StackSyncMetadata{}}
+	puller := &stubImagePuller{}
+
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default(), puller, nil)
+	runs := r.Reconcile(context.Background())
+
+	if len(runs) != 1 || runs[0].Result != "success" {
+		t.Fatalf("expected 1 successful run, got %d runs, result=%q error=%q", len(runs), runs[0].Result, runs[0].Error)
+	}
+	if len(puller.pullCalls) != 1 {
+		t.Fatalf("expected 1 pull call, got %d", len(puller.pullCalls))
+	}
+	if len(puller.pullCalls[0]) != 1 || puller.pullCalls[0][0] != "nginx:alpine" {
+		t.Errorf("expected pull of [nginx:alpine], got %v", puller.pullCalls[0])
+	}
+	if len(compose.upCalls) != 1 {
+		t.Errorf("expected 1 compose up call, got %d", len(compose.upCalls))
+	}
+}
+
+func TestReconcile_ImagePullFailure_StackFailed(t *testing.T) {
+	store := desiredstate.NewStore()
+	composeContent := []byte("services:\n  web:\n    image: nginx:alpine\n")
+	store.Set(&desiredstate.Snapshot{
+		Revision:      "rev1",
+		CommitMessage: "deploy",
+		RefreshStatus: desiredstate.RefreshStatusCompleted,
+		Stacks: []desiredstate.StackRecord{
+			{Path: "app1", ComposeFile: "docker-compose.yml", ComposeHash: "h1", Status: desiredstate.StackSyncMissing, Content: composeContent},
+		},
+	})
+
+	compose := &stubComposeRunner{}
+	inspector := &stubInspector{labels: map[string]reconcile.StackSyncMetadata{}}
+	puller := &stubImagePuller{pullErr: fmt.Errorf("unauthorized")}
+
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default(), puller, nil)
+	runs := r.Reconcile(context.Background())
+
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 run, got %d", len(runs))
+	}
+	if runs[0].Result != "failed" {
+		t.Errorf("expected failed, got %q", runs[0].Result)
+	}
+	if runs[0].Error != "image pull failed: unauthorized" {
+		t.Errorf("unexpected error: %q", runs[0].Error)
+	}
+	// ComposeUp should NOT have been called
+	if len(compose.upCalls) != 0 {
+		t.Errorf("expected 0 compose up calls after pull failure, got %d", len(compose.upCalls))
+	}
+}
+
+func TestReconcile_NilImagePuller_SkipsPull(t *testing.T) {
+	store := desiredstate.NewStore()
+	composeContent := []byte("services:\n  web:\n    image: nginx:alpine\n")
+	store.Set(&desiredstate.Snapshot{
+		Revision:      "rev1",
+		CommitMessage: "deploy",
+		RefreshStatus: desiredstate.RefreshStatusCompleted,
+		Stacks: []desiredstate.StackRecord{
+			{Path: "app1", ComposeFile: "docker-compose.yml", ComposeHash: "h1", Status: desiredstate.StackSyncMissing, Content: composeContent},
+		},
+	})
+
+	compose := &stubComposeRunner{}
+	inspector := &stubInspector{labels: map[string]reconcile.StackSyncMetadata{}}
+
+	// nil puller — should fall through to ComposeUp (implicit pull)
+	r := reconcile.NewReconciler(store, reconcile.DefaultPolicy(), compose, inspector, reconcile.NewAckStore(), "", newTestDriftDetector(""), newTestStateManager(store, compose), slog.Default(), nil, nil)
+	runs := r.Reconcile(context.Background())
+
+	if len(runs) != 1 || runs[0].Result != "success" {
+		t.Fatalf("expected success, got result=%q", runs[0].Result)
+	}
+	if len(compose.upCalls) != 1 {
+		t.Errorf("expected 1 compose up call, got %d", len(compose.upCalls))
+	}
 }
