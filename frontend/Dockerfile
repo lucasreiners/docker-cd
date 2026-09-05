@@ -10,7 +10,7 @@ COPY . .
 RUN bun run build
 
 # --- Serve stage ---
-FROM nginx:1.29.5-alpine
+FROM nginx:1.31.5-alpine
 
 # Remove default nginx config
 RUN rm /etc/nginx/conf.d/default.conf
