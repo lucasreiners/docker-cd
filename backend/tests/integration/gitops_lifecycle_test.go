@@ -117,7 +117,7 @@ func TestGitOpsLifecycle(t *testing.T) {
 	}
 
 	// Fail a real Compose validation, then fix it through Git and webhook.
-	broken := "services:\n  worker:\n    image: busybox:1.37.0\n    definitely_invalid_property: true\n"
+	broken := "services:\n  worker:\n    image: " + harness.Image + "\n    definitely_invalid_property: true\n"
 	revision, err = h.Commit(map[string]*string{"apps/web/compose.yaml": &broken}, "broken compose")
 	if err != nil {
 		t.Fatal(err)

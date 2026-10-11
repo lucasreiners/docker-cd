@@ -22,7 +22,7 @@ type Env struct {
 // Start spins up a docker:dind container and returns an Env.
 func Start(ctx context.Context) (*Env, error) {
 	req := testcontainers.ContainerRequest{
-		Image:        "docker:27-dind",
+		Image:        "docker:29.9.0-dind",
 		Privileged:   true,
 		ExposedPorts: []string{"2375/tcp", "2376/tcp"},
 		Env: map[string]string{

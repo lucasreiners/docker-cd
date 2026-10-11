@@ -80,6 +80,10 @@ bun install
 bun run dev     # starts Vite dev server on :8081, proxies /api to :8080
 ```
 
+The frontend uses TypeScript 6.0.3 for compatibility with `vue-tsc` 3.3.13.
+TypeScript 7 removes the `typescript/lib/tsc` entry point that this version of
+`vue-tsc` requires; upgrade both together once the Vue checker supports it.
+
 ## Tests
 
 ```bash
