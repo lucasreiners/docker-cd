@@ -21,10 +21,15 @@ func NewRouter(cfg config.Config, refreshSvc *refresh.Service, store *desiredsta
 	r.Use(gin.Recovery())
 
 	r.GET("/", RootHandler(cfg, api))
+	var consoleBroadcaster *desiredstate.Broadcaster
+	if len(broadcaster) > 0 {
+		consoleBroadcaster = broadcaster[0]
+	}
+	registerConsole(r, cfg, store, reconciler, scheduler, consoleBroadcaster, api)
 
 	// API routes
 	if refreshSvc != nil {
-		r.POST("/api/webhook", WebhookHandler(cfg, refreshSvc))
+		r.POST("/api/webhook", WebhookHandler(cfg, refreshSvc, consoleBroadcaster))
 		r.POST("/api/refresh", ManualRefreshHandler(refreshSvc))
 	}
 	if scheduler != nil {

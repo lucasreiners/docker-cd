@@ -3,6 +3,9 @@
 // or falls back to relative paths (Vite dev proxy).
 
 export interface StackRecord {
+  desiredRevision?: string
+  statusReason?: string
+  requiresAcknowledgement?: boolean
   path: string
   composeFile: string
   composeHash: string
@@ -53,6 +56,10 @@ function getBaseURL(): string {
   return window.__DOCKER_CD_CONFIG__?.API_BASE_URL ?? ''
 }
 
+export function apiURL(path: string): string {
+  return `${getBaseURL()}${path}`
+}
+
 export async function fetchStacks(): Promise<StackRecord[]> {
   const res = await fetch(`${getBaseURL()}/api/stacks`)
   if (!res.ok) {
@@ -79,11 +86,58 @@ export async function triggerRefresh(): Promise<void> {
 export async function triggerUpdate(): Promise<void> {
   const res = await fetch(`${getBaseURL()}/api/update`, { method: 'POST' })
   if (!res.ok) {
-    if (res.status === 409) {
-      throw new Error('Update cycle already in progress')
-    }
-    throw new Error(`Failed to trigger update: ${res.status}`)
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.error || `Failed to trigger update: ${res.status}`)
   }
+}
+
+export async function requestJSON<T>(path: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(`${getBaseURL()}${path}`, options)
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}))
+    throw new Error(body.error || `Request failed (${response.status})`)
+  }
+  return response.json()
+}
+
+export interface Operation {
+  version?: number
+  id: string
+  parentId?: string
+  kind: string
+  trigger: string
+  stack?: string
+  revision?: string
+  status: string
+  message: string
+  startedAt: string
+  finishedAt?: string
+  steps: { at: string; phase: string; message: string }[]
+}
+export interface Instance {
+  name: string
+  version: string
+  repository: {
+    url: string
+    ref: string
+    deployDir: string
+    pollInterval: string
+    webhookConfigured: boolean
+    credentialsConfigured: boolean
+  }
+  dockerEndpoint: string
+  policies: { reconcile: boolean; remove: boolean; drift: string }
+  schedule: { enabled: boolean; cron: string; timezone: string; nextRun: string }
+  capabilities: {
+    logs?: boolean
+    inspect: boolean
+    apply: boolean
+    imageUpdates: boolean
+    history: boolean
+    configuration: boolean
+  }
+  history: { persistent: boolean; error: string; retention: number }
+  configurationSource: string
 }
 
 export function getEventsURL(): string {

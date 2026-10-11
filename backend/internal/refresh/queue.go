@@ -17,6 +17,7 @@ const (
 
 // Trigger represents a refresh request.
 type Trigger struct {
+	ParentID    string
 	Source      TriggerSource
 	RequestedAt time.Time
 }

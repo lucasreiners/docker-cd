@@ -8,6 +8,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - repo-data:/repo
+      - operation-data:/data
     environment:
       - PORT=8080
       - PROJECT_NAME=Docker-CD
@@ -39,3 +40,4 @@ services:
 
 volumes:
   repo-data:
+  operation-data:

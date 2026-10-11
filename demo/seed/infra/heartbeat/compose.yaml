@@ -1,0 +1,9 @@
+services:
+  worker:
+    image: busybox:1.38.0
+    command:
+      - sh
+      - -c
+      - |
+        while true; do echo "Docker-CD heartbeat: $$(date -Iseconds)"; sleep 5; done
+    restart: unless-stopped

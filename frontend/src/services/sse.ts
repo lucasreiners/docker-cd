@@ -1,17 +1,19 @@
 // SSE client wrapper with auto-reconnect and typed event handling.
 
-import type { StackRecord } from './api'
+import type { Operation, RefreshSnapshot, StackRecord } from './api'
 import { getEventsURL } from './api'
+import type { UpdateProgress } from './progress'
 
 export type ConnectionState = 'connected' | 'reconnecting' | 'disconnected'
 
 export interface SSECallbacks {
+  onOperation?: (operation: Operation) => void
   onSnapshot?: (records: StackRecord[]) => void
   onUpsert?: (record: StackRecord) => void
   onDelete?: (path: string) => void
-  onRefreshStatus?: (snapshot: unknown) => void
-  onUpdateProgress?: (progress: unknown) => void
-  onUpdateSnapshot?: (progress: unknown[]) => void
+  onRefreshStatus?: (snapshot: RefreshSnapshot) => void
+  onUpdateProgress?: (progress: UpdateProgress) => void
+  onUpdateSnapshot?: (progress: UpdateProgress[]) => void
   onConnectionChange?: (state: ConnectionState) => void
 }
 
@@ -99,6 +101,14 @@ export class SSEClient {
         this.callbacks.onUpdateSnapshot?.(JSON.parse(e.data).progress ?? [])
       } catch {
         // Ignore parse errors
+      }
+    })
+
+    this.es.addEventListener('operation.upsert', (e: MessageEvent) => {
+      try {
+        this.callbacks.onOperation?.(JSON.parse(e.data))
+      } catch {
+        /* Discard malformed events. */
       }
     })
 

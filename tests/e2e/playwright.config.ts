@@ -2,12 +2,14 @@ import { defineConfig } from '@playwright/test'
 
 export default defineConfig({
   testDir: './specs',
+  testMatch: 'gitops.spec.ts',
   fullyParallel: false,
   workers: 1,
   retries: 0,
   timeout: 180_000,
   expect: { timeout: 30_000 },
-  reporter: [['list'], ['html', { open: 'never' }]],
+  outputDir: 'test-results/gitops',
+  reporter: [['list'], ['html', { outputFolder: 'playwright-report/gitops', open: 'never' }]],
   use: {
     baseURL: 'http://127.0.0.1:18081',
     browserName: 'chromium',

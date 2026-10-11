@@ -4,7 +4,10 @@
   "type": "module",
   "scripts": {
     "test": "playwright test",
-    "test:ui": "playwright test --ui"
+    "test:ui": "playwright test --ui",
+    "test:frontend": "playwright test --config playwright.frontend.config.ts",
+    "test:frontend:headed": "E2E_SLOW_MO=450 playwright test --config playwright.frontend.config.ts --headed",
+    "test:frontend:explore": "playwright test --config playwright.frontend.config.ts --ui"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.0"

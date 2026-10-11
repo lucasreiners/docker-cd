@@ -94,9 +94,13 @@ func TestReconcileStack_PublishesTerminalProgress(t *testing.T) {
 			if fail {
 				want[2] = "stack_error"
 			}
-			for _, expected := range want {
+			for index := 0; index < len(want); {
+				expected := want[index]
 				select {
 				case e := <-sub.Events:
+					if e.Type != desiredstate.EventUpdateProgress {
+						continue
+					}
 					var payload struct {
 						Type   string
 						Source string
@@ -107,6 +111,7 @@ func TestReconcileStack_PublishesTerminalProgress(t *testing.T) {
 					if payload.Type != expected || payload.Source != "reconcile" {
 						t.Fatalf("unexpected progress: %s", e.Data)
 					}
+					index++
 				case <-time.After(time.Second):
 					t.Fatalf("missing %s event", expected)
 				}

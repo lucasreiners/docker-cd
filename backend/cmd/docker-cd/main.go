@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/lucasreiners/docker-cd/internal/events"
 	gitval "github.com/lucasreiners/docker-cd/internal/git"
 	handler "github.com/lucasreiners/docker-cd/internal/http"
+	"github.com/lucasreiners/docker-cd/internal/operations"
 	"github.com/lucasreiners/docker-cd/internal/reconcile"
 	"github.com/lucasreiners/docker-cd/internal/refresh"
 	"github.com/lucasreiners/docker-cd/internal/scheduler"
@@ -92,6 +94,12 @@ func main() {
 	// Initialize desired-state refresh pipeline
 	store := desiredstate.NewStore()
 	broadcaster := desiredstate.NewBroadcaster()
+	history, err := operations.Open(filepath.Join(cfg.DataDir, "operations.json"))
+	if err != nil {
+		logger.Error("cannot open operation history", "error", err)
+		os.Exit(1)
+	}
+	broadcaster.SetOperations(history)
 	queue := refresh.NewQueue()
 	localClone := gitval.NewLocalClone(gitval.DefaultLocalRepoPath, cfg.GitRepoURL, cfg.GitAccessToken, cfg.GitRevision)
 	composeReader := gitval.NewLocalComposeReader(localClone)
