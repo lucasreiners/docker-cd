@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lucasreiners/docker-cd/internal/config"
@@ -261,18 +262,17 @@ func EventsHandler(broadcaster *desiredstate.Broadcaster, store *desiredstate.St
 		c.Header("Connection", "keep-alive")
 		c.Header("X-Accel-Buffering", "no")
 
-		sub := broadcaster.Subscribe()
+		sub, initial := broadcaster.SubscribeWithSnapshot(store)
 		defer broadcaster.Unsubscribe(sub)
-
-		// Send initial snapshot of current stacks
-		stacks := store.GetStacks()
-		if stacks == nil {
-			stacks = []desiredstate.StackRecord{}
-		}
-		broadcaster.PublishStackSnapshot(stacks)
 
 		ctx := c.Request.Context()
 		flusher := c.Writer
+		for _, event := range initial {
+			fmt.Fprintf(flusher, "id: %s\nevent: %s\ndata: %s\n\n", event.ID, event.Type, event.Data)
+		}
+		flusher.Flush()
+		heartbeat := time.NewTicker(15 * time.Second)
+		defer heartbeat.Stop()
 
 		for {
 			select {
@@ -280,8 +280,15 @@ func EventsHandler(broadcaster *desiredstate.Broadcaster, store *desiredstate.St
 				return
 			case <-sub.Done():
 				return
+			case <-heartbeat.C:
+				if _, err := fmt.Fprint(flusher, ": keepalive\n\n"); err != nil {
+					return
+				}
+				flusher.Flush()
 			case event := <-sub.Events:
-				fmt.Fprintf(flusher, "id: %s\nevent: %s\ndata: %s\n\n", event.ID, event.Type, event.Data)
+				if _, err := fmt.Fprintf(flusher, "id: %s\nevent: %s\ndata: %s\n\n", event.ID, event.Type, event.Data); err != nil {
+					return
+				}
 				flusher.Flush()
 			}
 		}

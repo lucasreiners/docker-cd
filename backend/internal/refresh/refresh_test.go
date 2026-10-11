@@ -142,6 +142,9 @@ func TestService_PreserveSyncStatus(t *testing.T) {
 		t.Fatal("expected non-nil snapshot")
 	}
 	snap.Stacks[0].Status = desiredstate.StackSyncSynced
+	snap.Stacks[0].ContainersRunning = 2
+	snap.Stacks[0].ContainersTotal = 2
+	snap.Stacks[0].SyncedRevision = "deployed-commit"
 	store.Set(snap)
 
 	// Trigger another refresh (same content, same hash)
@@ -158,6 +161,9 @@ func TestService_PreserveSyncStatus(t *testing.T) {
 	}
 	if snap.Stacks[0].Status != desiredstate.StackSyncSynced {
 		t.Errorf("expected synced status preserved, got %q", snap.Stacks[0].Status)
+	}
+	if snap.Stacks[0].ContainersRunning != 2 || snap.Stacks[0].SyncedRevision != "deployed-commit" {
+		t.Fatalf("refresh discarded runtime metadata: %+v", snap.Stacks[0])
 	}
 }
 

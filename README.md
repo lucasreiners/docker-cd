@@ -44,6 +44,11 @@ export UPDATER_CRON="0 3 * * *"  # 3 AM UTC daily (default)
 
 The updater is disabled by default. Update cycles run sequentially to avoid resource contention, and the service gracefully waits for active cycles to complete during shutdown.
 
+Stack discovery recursively scans subdirectories of `GIT_DEPLOY_DIR`. Supported
+filenames are `docker-compose.yml`, `docker-compose.yaml`, `compose.yaml`, and
+`compose.yml`, in that precedence order (one stack per directory). Stack paths
+remain relative to the deploy directory, including their nested parents.
+
 ## Run
 
 ```bash
@@ -86,4 +91,72 @@ cd frontend && bun run test
 
 # Integration tests (requires a running Docker daemon)
 cd backend && go test -tags integration ./tests/integration/... -v
+```
+
+### GitOps lifecycle integration tests
+
+Prerequisites: Go matching `backend/go.mod`, Docker with privileged-container
+support, Docker Compose v2+, and access to pull the public DinD/BusyBox images.
+The test creates its own Git origin and clone in temporary directories and uses
+a disposable Docker-in-Docker daemon. Compose, image pulls, containers, labels,
+and volumes are real; GitHub push payloads and signatures are generated locally.
+No GitHub token, application `.env`, or live deployment is used.
+
+Run from `backend/`:
+
+```bash
+DOCKER_AUTH_CONFIG='{}' go test -race -tags integration ./tests/integration \
+  -run 'Test(GitOps|SlowPull)Lifecycle' -count=1 -timeout=8m -v
+```
+
+Coverage includes nested discovery, initial sync, signed webhook verification,
+changed-stack deployment, unchanged-stack preservation, duplicate deliveries,
+runtime revision labels, failure/recovery, SSE transitions, and removal with
+persistent-volume retention. `DOCKER_AUTH_CONFIG='{}'` tells Testcontainers to
+use public-image authentication instead of invoking local credential helpers.
+
+### Browser E2E tests
+
+Install frontend dependencies in `frontend/` with `bun install --frozen-lockfile`.
+Then run from `tests/e2e/`:
+
+```bash
+bun install --frozen-lockfile
+bunx playwright install chromium
+DOCKER_AUTH_CONFIG='{}' bun run test
+```
+
+Playwright starts Vite on `127.0.0.1:18081` and an integration-only Go test server
+on `127.0.0.1:18080`, with its own DinD daemon. Both ports must be free. The test
+uses real API/SSE responses and checks initial sync, live card container updates,
+mid-sync reconnect, multi-tab updates, detail-page container replacement,
+failure/recovery, manual image updates, and stack removal. A test-only gate pauses
+before real Compose deployment so transient states can be asserted deterministically.
+Test control routes are compiled only with the `integration` build tag and are
+not exposed by the production application.
+
+The lifecycle is one sequential browser scenario against a disposable fixture;
+retries are disabled to avoid hiding failures behind already-mutated state.
+Screenshots and traces are retained on failure. Inspect them with
+`bunx playwright show-report` or `bunx playwright show-trace <trace.zip>`.
+The shared Verify workflow runs both new suites on pull requests and releases.
+
+#### Long image pulls and layer progress
+
+The slow-pull fixture feeds controlled Docker Engine NDJSON through the real
+SDK parser, reconciliation, SSE, and UI. It simulates two large layers (128/256
+MiB), separate download/extraction phases, and an interrupted registry stream.
+The layer bytes are simulated, not downloaded; successful fixtures then perform
+an actual BusyBox pull and deployment in DinD. This tests slow-stream behavior
+deterministically without depending on a public registry's speed.
+
+Assertions cover independent layer byte counts, reconnect snapshots containing
+both layers, whole-image versus layer completion, pull-error recovery, and
+remaining `syncing` while periodic refreshes queue behind a long initial pull.
+CI holds the stream quiet for 65 seconds. Local runs default to 5 seconds;
+to watch the longer scenario in a visible browser, run from `tests/e2e/`:
+
+```bash
+DOCKER_AUTH_CONFIG='{}' E2E_PULL_HOLD_MS=65000 E2E_SLOW_MO=1000 \
+  bun run test --headed
 ```

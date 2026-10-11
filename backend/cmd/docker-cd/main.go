@@ -100,7 +100,7 @@ func main() {
 
 	// Initialize event bus and wire up event handlers
 	eventBus := events.NewEventBus(logger)
-	setupEventHandlers(eventBus, broadcaster, store)
+	events.ForwardToSSE(eventBus, broadcaster, store)
 
 	// Initialize reconciler
 	policy := reconcile.ReconciliationPolicy{
@@ -191,73 +191,6 @@ func main() {
 	}
 }
 
-// setupEventHandlers subscribes event handlers that forward domain events to the SSE broadcaster.
-func setupEventHandlers(eventBus *events.EventBus, broadcaster *desiredstate.Broadcaster, store *desiredstate.Store) {
-	// Forward all stack update events to SSE broadcaster
-	eventBus.Subscribe(events.EventTypeStackStatusChanged, func(ctx context.Context, event events.Event) error {
-		if broadcaster == nil {
-			return nil
-		}
-
-		e := event.(*events.StackStatusChangedEvent)
-		snap := store.Get()
-		if snap == nil {
-			return nil
-		}
-
-		// Find the updated stack record and broadcast it
-		for _, stack := range snap.Stacks {
-			if stack.Path == e.StackPath {
-				broadcaster.PublishStackUpsert(stack)
-				break
-			}
-		}
-		return nil
-	})
-
-	eventBus.Subscribe(events.EventTypeStackSynced, func(ctx context.Context, event events.Event) error {
-		if broadcaster == nil {
-			return nil
-		}
-
-		e := event.(*events.StackSyncedEvent)
-		snap := store.Get()
-		if snap == nil {
-			return nil
-		}
-
-		// Find the synced stack record and broadcast it
-		for _, stack := range snap.Stacks {
-			if stack.Path == e.StackPath {
-				broadcaster.PublishStackUpsert(stack)
-				break
-			}
-		}
-		return nil
-	})
-
-	eventBus.Subscribe(events.EventTypeContainersUpdated, func(ctx context.Context, event events.Event) error {
-		if broadcaster == nil {
-			return nil
-		}
-
-		e := event.(*events.ContainersUpdatedEvent)
-		snap := store.Get()
-		if snap == nil {
-			return nil
-		}
-
-		// Find the updated stack record and broadcast it
-		for _, stack := range snap.Stacks {
-			if stack.Path == e.StackPath {
-				broadcaster.PublishStackUpsert(stack)
-				break
-			}
-		}
-		return nil
-	})
-}
-
 // dockerImagePuller adapts docker.Client to reconcile.ImagePuller.
 type dockerImagePuller struct {
 	client *docker.Client
@@ -268,11 +201,15 @@ func (d *dockerImagePuller) PullImages(ctx context.Context, images []string, onP
 	if onProgress != nil {
 		dockerProgress = func(p docker.PullProgress) {
 			onProgress(reconcile.PullProgress{
-				Image:    p.Image,
-				Status:   p.Status,
-				Progress: p.Progress,
-				Current:  p.Current,
-				Total:    p.Total,
+				Image:        p.Image,
+				Status:       p.Status,
+				Progress:     p.Progress,
+				Current:      p.Current,
+				Total:        p.Total,
+				LayerID:      p.LayerID,
+				BytesCurrent: p.BytesCurrent,
+				BytesTotal:   p.BytesTotal,
+				Done:         p.Done,
 			})
 		}
 	}

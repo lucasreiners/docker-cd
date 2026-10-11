@@ -33,3 +33,54 @@ jobs:
       - run: bun run build
       - name: Run tests with coverage
         run: bun run test --coverage
+
+  verify-gitops-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DOCKER_AUTH_CONFIG: '{}'
+      GIN_MODE: release
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache: true
+      - name: Verify Docker and Compose prerequisites
+        run: docker info && docker compose version
+      - name: Git, signed webhooks, SSE and real DinD lifecycle
+        working-directory: backend
+        run: go test -race -tags integration ./tests/integration -run 'Test(GitOps|SlowPull)Lifecycle' -count=1 -timeout=8m -v
+
+  verify-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DOCKER_AUTH_CONFIG: '{}'
+      E2E_PULL_HOLD_MS: '65000'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache: true
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1"
+      - run: bun install --frozen-lockfile
+        working-directory: frontend
+      - run: bun install --frozen-lockfile
+        working-directory: tests/e2e
+      - run: bunx playwright install --with-deps chromium
+        working-directory: tests/e2e
+      - name: Browser GitOps lifecycle against DinD
+        run: bun run test
+        working-directory: tests/e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gitops-playwright-results
+          path: |
+            tests/e2e/playwright-report/
+            tests/e2e/test-results/
+          retention-days: 7

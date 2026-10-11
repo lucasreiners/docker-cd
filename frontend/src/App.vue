@@ -44,8 +44,9 @@ router.afterEach(() => {
 
 onMounted(async () => {
   updateDocumentTitle()
-  await store.loadInitial()
+  const initial = store.loadInitial()
   store.connectSSE()
+  await initial
 })
 
 onUnmounted(() => {

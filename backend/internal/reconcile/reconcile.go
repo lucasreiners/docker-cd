@@ -24,11 +24,15 @@ type ComposeRunner interface {
 
 // PullProgress reports per-image pull status.
 type PullProgress struct {
-	Image    string
-	Status   string
-	Progress string
-	Current  int
-	Total    int
+	Image        string
+	Status       string
+	Progress     string
+	Current      int
+	Total        int
+	LayerID      string
+	BytesCurrent int64
+	BytesTotal   int64
+	Done         bool
 }
 
 // PullProgressFn is called with pull progress updates.
@@ -121,6 +125,7 @@ func (r *Reconciler) Reconcile(ctx context.Context) []ReconciliationRun {
 	defer r.mu.Unlock()
 
 	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	r.cancelMu.Lock()
 	r.cancelActive = cancel
 	r.cancelMu.Unlock()
@@ -283,6 +288,24 @@ func (r *Reconciler) syncStack(ctx context.Context, drift DriftResult, snap *des
 
 	// Update status to syncing
 	r.stateManager.UpdateStatus(drift.Path, desiredstate.StackSyncSyncing, "", "")
+	if r.broadcaster != nil {
+		r.broadcaster.PublishUpdateProgress(map[string]interface{}{
+			"type": "stack_sync_started", "source": "reconcile", "stack": drift.Path,
+			"message": fmt.Sprintf("Syncing stack %s", drift.Path),
+		})
+		defer func() {
+			eventType := "stack_success"
+			message := fmt.Sprintf("Synced stack %s", drift.Path)
+			if run.Result != "success" {
+				eventType = "stack_error"
+				message = run.Error
+			}
+			r.broadcaster.PublishUpdateProgress(map[string]interface{}{
+				"type": eventType, "source": "reconcile", "stack": drift.Path,
+				"message": message, "error": run.Error,
+			})
+		}()
+	}
 
 	// Derive project name
 	projectName := deriveProjectName(r.projectNamePrefix(), drift.Path)
@@ -316,14 +339,19 @@ func (r *Reconciler) syncStack(ctx context.Context, drift DriftResult, snap *des
 			if r.broadcaster != nil {
 				onProgress = func(p PullProgress) {
 					r.broadcaster.PublishUpdateProgress(map[string]interface{}{
-						"type":      "image_pull_progress",
-						"stack":     drift.Path,
-						"image":     p.Image,
-						"status":    p.Status,
-						"progress":  p.Progress,
-						"current":   p.Current,
-						"total":     p.Total,
-						"timestamp": time.Now(),
+						"type":         "image_pull_progress",
+						"source":       "reconcile",
+						"stack":        drift.Path,
+						"image":        p.Image,
+						"status":       p.Status,
+						"progress":     p.Progress,
+						"current":      p.Current,
+						"total":        p.Total,
+						"layerId":      p.LayerID,
+						"bytesCurrent": p.BytesCurrent,
+						"bytesTotal":   p.BytesTotal,
+						"done":         p.Done,
+						"timestamp":    time.Now(),
 					})
 				}
 			}
@@ -339,6 +367,12 @@ func (r *Reconciler) syncStack(ctx context.Context, drift DriftResult, snap *des
 	}
 
 	// Run docker compose up
+	if r.broadcaster != nil {
+		r.broadcaster.PublishUpdateProgress(map[string]interface{}{
+			"type": "stack_deploying", "source": "reconcile", "stack": drift.Path,
+			"message": fmt.Sprintf("Deploying stack %s", drift.Path),
+		})
+	}
 	// workDir is set to the stack path so Docker Compose resolves relative
 	// volume mounts and build contexts correctly.
 	workDir := drift.Path

@@ -11,6 +11,7 @@ export interface SSECallbacks {
   onDelete?: (path: string) => void
   onRefreshStatus?: (snapshot: unknown) => void
   onUpdateProgress?: (progress: unknown) => void
+  onUpdateSnapshot?: (progress: unknown[]) => void
   onConnectionChange?: (state: ConnectionState) => void
 }
 
@@ -88,6 +89,14 @@ export class SSEClient {
       try {
         const data = JSON.parse(e.data)
         this.callbacks.onUpdateProgress?.(data)
+      } catch {
+        // Ignore parse errors
+      }
+    })
+
+    this.es.addEventListener('update.snapshot', (e: MessageEvent) => {
+      try {
+        this.callbacks.onUpdateSnapshot?.(JSON.parse(e.data).progress ?? [])
       } catch {
         // Ignore parse errors
       }
