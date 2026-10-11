@@ -161,8 +161,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { useStackContainers } from '../composables/useStackContainers'
 import StatusBadge from '../components/StatusBadge.vue'
+import { useStackContainers } from '../composables/useStackContainers'
 import { useStacksStore } from '../store/stacks'
 import { buildPortURL, type PortMapping, parsePortString } from '../utils/portUtils'
 
@@ -244,7 +244,6 @@ function openPort(port: number | null, event: MouseEvent): void {
     window.open(url, '_blank', 'noopener,noreferrer')
   }
 }
-
 </script>
 
 <style scoped>
