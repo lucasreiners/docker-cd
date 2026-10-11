@@ -8,6 +8,7 @@ import (
 	"github.com/lucasreiners/docker-cd/internal/config"
 	"github.com/lucasreiners/docker-cd/internal/desiredstate"
 	"github.com/lucasreiners/docker-cd/internal/git"
+	"github.com/lucasreiners/docker-cd/internal/operations"
 )
 
 // ReconcileFunc is a callback invoked after each successful refresh to trigger reconciliation.
@@ -75,11 +76,11 @@ func (s *Service) Start(ctx context.Context) {
 }
 
 // RequestRefresh enqueues a refresh trigger and returns the queue result.
-func (s *Service) RequestRefresh(source TriggerSource) QueueResult {
-	return s.enqueueRefresh(source)
+func (s *Service) RequestRefresh(source TriggerSource, parent ...string) QueueResult {
+	return s.enqueueRefresh(source, parent...)
 }
 
-func (s *Service) enqueueRefresh(source TriggerSource) QueueResult {
+func (s *Service) enqueueRefresh(source TriggerSource, parent ...string) QueueResult {
 	// Polling observes Git on a schedule, not a deployment deadline. Queue it
 	// behind an active sync so large pulls are not repeatedly cancelled.
 	if source != TriggerPeriodic && s.cancelRecon != nil {
@@ -89,7 +90,12 @@ func (s *Service) enqueueRefresh(source TriggerSource) QueueResult {
 		s.cancelUpd()
 	}
 
+	parentID := ""
+	if len(parent) > 0 {
+		parentID = parent[0]
+	}
 	return s.queue.Enqueue(Trigger{
+		ParentID:    parentID,
 		Source:      source,
 		RequestedAt: time.Now(),
 	})
@@ -111,6 +117,11 @@ func (s *Service) pollLoop(ctx context.Context) {
 }
 
 func (s *Service) doRefresh(ctx context.Context, trigger Trigger) {
+	if trigger.ParentID != "" {
+		ctx = operations.WithID(ctx, trigger.ParentID)
+	}
+	ctx = s.broadcaster.BeginOperation(ctx, "refresh", string(trigger.Source), "", s.cfg.GitRevision)
+	ctx = operations.WithTrigger(ctx, string(trigger.Source))
 	log.Printf("[info] starting refresh (source: %s)", trigger.Source)
 
 	s.store.SetRefreshState(desiredstate.RefreshStatusRefreshing, "", true, "refreshing", git.DefaultLocalRepoPath)
@@ -128,6 +139,7 @@ func (s *Service) doRefresh(ctx context.Context, trigger Trigger) {
 
 	if err != nil {
 		log.Printf("[error] refresh failed: %v", err)
+		s.broadcaster.EndOperation(ctx, "failed", err.Error())
 		s.store.SetRefreshState(desiredstate.RefreshStatusFailed, err.Error(), true, "refresh failed", git.DefaultLocalRepoPath)
 		if s.broadcaster != nil {
 			s.broadcaster.PublishRefreshStatus(s.store.GetRefreshStatus())
@@ -137,6 +149,9 @@ func (s *Service) doRefresh(ctx context.Context, trigger Trigger) {
 	}
 
 	newStacks := s.buildStacksPreservingStatus(entries)
+	for i := range newStacks {
+		newStacks[i].DesiredRevision = commitHash
+	}
 
 	snap := &desiredstate.Snapshot{
 		Revision:       commitHash,
@@ -153,6 +168,7 @@ func (s *Service) doRefresh(ctx context.Context, trigger Trigger) {
 	}
 
 	s.store.Set(snap)
+	s.broadcaster.EndOperation(ctx, "completed", "Repository checked at "+truncate(commitHash, 12))
 	log.Printf("[info] refresh completed: %d stacks at %s", len(newStacks), truncate(commitHash, 12))
 
 	// Publish SSE events for connected frontends

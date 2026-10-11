@@ -49,6 +49,8 @@ func (sm *StateManager) UpdateStatus(path string, status desiredstate.StackSyncS
 			snap.Stacks[i].LastSyncAt = now
 			snap.Stacks[i].LastSyncStatus = string(status)
 			snap.Stacks[i].LastSyncError = syncError
+			snap.Stacks[i].RequiresAcknowledgement = false
+			snap.Stacks[i].StatusReason = ""
 			updated = &snap.Stacks[i]
 			break
 		}
@@ -90,6 +92,8 @@ func (sm *StateManager) MarkSynced(path, revision, commitMessage, composeHash, s
 			snap.Stacks[i].LastSyncAt = syncedAt
 			snap.Stacks[i].LastSyncStatus = string(desiredstate.StackSyncSynced)
 			snap.Stacks[i].LastSyncError = ""
+			snap.Stacks[i].RequiresAcknowledgement = false
+			snap.Stacks[i].StatusReason = ""
 			found = true
 			updated = &snap.Stacks[i]
 			break

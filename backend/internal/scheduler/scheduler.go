@@ -11,6 +11,7 @@ import (
 	"github.com/lucasreiners/docker-cd/internal/desiredstate"
 	"github.com/lucasreiners/docker-cd/internal/docker"
 	"github.com/lucasreiners/docker-cd/internal/git"
+	"github.com/lucasreiners/docker-cd/internal/operations"
 	"github.com/lucasreiners/docker-cd/internal/reconcile"
 	"github.com/robfig/cron/v3"
 )
@@ -182,7 +183,7 @@ func (s *SchedulerService) TriggerUpdateCycle(ctx context.Context) error {
 	s.activeCancel = cancel
 
 	// Trigger update cycle in background
-	go s.executeUpdateCycleManual(cycleCtx, cycle)
+	go s.executeUpdateCycleManual(operations.WithTrigger(cycleCtx, "manual"), cycle)
 	return nil
 }
 
@@ -239,7 +240,7 @@ func (s *SchedulerService) runUpdateCycle(ctx context.Context) {
 	}()
 
 	// Execute update cycle
-	s.executeUpdateCycle(cycleCtx, cycle)
+	s.executeUpdateCycle(operations.WithTrigger(cycleCtx, "schedule"), cycle)
 }
 
 func (s *SchedulerService) refreshReady() (bool, string) {
@@ -288,6 +289,20 @@ func (s *SchedulerService) executeUpdateCycleManual(ctx context.Context, cycle *
 
 // executeUpdateCycle performs the actual update operations (T013-T019)
 func (s *SchedulerService) executeUpdateCycle(ctx context.Context, cycle *UpdateCycle) {
+	ctx = s.broadcaster.BeginOperation(ctx, "image_update", operations.Trigger(ctx), "", "")
+	defer func() {
+		status := "completed"
+		message := "Image update cycle completed"
+		if len(cycle.Errors) > 0 {
+			status = "completed_with_errors"
+			message = fmt.Sprintf("Image update completed with %d errors", len(cycle.Errors))
+		}
+		if ctx.Err() != nil {
+			status = "cancelled"
+			message = "Image update cancelled"
+		}
+		s.broadcaster.EndOperation(ctx, status, message)
+	}()
 	defer func() {
 		if ctx.Err() != nil && s.broadcaster != nil {
 			s.broadcaster.PublishUpdateProgress(map[string]interface{}{
@@ -381,6 +396,11 @@ func (s *SchedulerService) executeUpdateCycle(ctx context.Context, cycle *Update
 		}
 
 		result := s.updateStack(ctx, stack, onPullProgress)
+		message := "Updated " + stack.Path
+		if result.Error != nil {
+			message = stack.Path + ": " + result.Error.Error()
+		}
+		s.broadcaster.OperationStep(ctx, "stack", message)
 		cycle.StacksProcessed++
 
 		if !result.Success {
@@ -416,6 +436,7 @@ func (s *SchedulerService) executeUpdateCycle(ctx context.Context, cycle *Update
 	}
 
 	// Prune images (T017)
+	s.broadcaster.OperationStep(ctx, "pruning", "Pruning unused images on the Docker endpoint")
 	if s.broadcaster != nil {
 		s.broadcaster.PublishUpdateProgress(map[string]interface{}{
 			"type":      "pruning",

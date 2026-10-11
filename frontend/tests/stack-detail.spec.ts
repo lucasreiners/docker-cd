@@ -7,6 +7,7 @@ import { useStacksStore } from '../src/store/stacks'
 
 // Stub naive-ui components
 const naiveStubs = {
+  RouterLink: { template: '<a><slot /></a>', props: ['to'] },
   NCard: { template: '<div class="n-card"><slot /></div>' },
   NPageHeader: {
     template: '<div class="n-page-header"><slot name="title" /><slot name="extra" /><slot /></div>',
@@ -36,6 +37,7 @@ const naiveStubs = {
 vi.mock('vue-router', () => ({
   useRoute: vi.fn(() => ({
     params: { path: ['apps', 'api'] },
+    query: {},
   })),
   useRouter: vi.fn(() => ({
     push: vi.fn(),

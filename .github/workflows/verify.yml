@@ -76,6 +76,9 @@ jobs:
       - name: Browser GitOps lifecycle against DinD
         run: bun run test
         working-directory: tests/e2e
+      - name: Operations console browser walkthrough
+        run: bun run test:redesign
+        working-directory: tests/e2e
       - uses: actions/upload-artifact@v7
         if: always()
         with:

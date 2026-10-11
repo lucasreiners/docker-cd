@@ -17,6 +17,7 @@ import (
 	"github.com/lucasreiners/docker-cd/internal/desiredstate"
 	"github.com/lucasreiners/docker-cd/internal/docker"
 	"github.com/lucasreiners/docker-cd/internal/git"
+	"github.com/lucasreiners/docker-cd/internal/operations"
 	"github.com/lucasreiners/docker-cd/internal/reconcile"
 	"github.com/lucasreiners/docker-cd/internal/refresh"
 	"github.com/lucasreiners/docker-cd/internal/render"
@@ -56,10 +57,28 @@ func RootHandler(cfg config.Config, api DockerAPI) gin.HandlerFunc {
 }
 
 // WebhookHandler handles GitHub webhook POST requests with optional HMAC validation.
-func WebhookHandler(cfg config.Config, refreshSvc *refresh.Service) gin.HandlerFunc {
+func WebhookHandler(cfg config.Config, refreshSvc *refresh.Service, broadcaster ...*desiredstate.Broadcaster) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		var b *desiredstate.Broadcaster
+		if len(broadcaster) > 0 {
+			b = broadcaster[0]
+		}
+		ctx := b.BeginOperation(c.Request.Context(), "webhook", "github", "", "")
+		outcome := "Webhook accepted"
+		defer func() {
+			status := "completed"
+			if c.Writer.Status() >= 400 {
+				status = "failed"
+			}
+			delivery := c.GetHeader("X-GitHub-Delivery")
+			if len(delivery) > 100 {
+				delivery = delivery[:100]
+			}
+			b.EndOperation(ctx, status, fmt.Sprintf("%s · delivery %s · HTTP %d", outcome, delivery, c.Writer.Status()))
+		}()
 		body, err := io.ReadAll(c.Request.Body)
 		if err != nil {
+			outcome = "Could not read webhook body"
 			c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body"})
 			return
 		}
@@ -68,18 +87,21 @@ func WebhookHandler(cfg config.Config, refreshSvc *refresh.Service) gin.HandlerF
 		if cfg.WebhookSecret != "" {
 			sigHeader := c.GetHeader("X-Hub-Signature-256")
 			if sigHeader == "" {
+				outcome = "Signature header missing"
 				log.Printf("[warn] webhook rejected: missing X-Hub-Signature-256 header")
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "missing signature header"})
 				return
 			}
 			if !verifyHMAC(cfg.WebhookSecret, body, sigHeader) {
+				outcome = "Invalid webhook signature"
 				log.Printf("[warn] webhook rejected: invalid HMAC signature")
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid signature"})
 				return
 			}
 		}
 
-		result := refreshSvc.RequestRefresh(refresh.TriggerWebhook)
+		result := refreshSvc.RequestRefresh(refresh.TriggerWebhook, operations.ID(ctx))
+		outcome = "Webhook accepted; refresh " + string(result)
 		log.Printf("[info] webhook refresh %s", string(result))
 		c.JSON(http.StatusOK, gin.H{
 			"status":  string(result),

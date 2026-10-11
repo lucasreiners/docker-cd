@@ -21,7 +21,7 @@ vi.mock('../src/services/api', () => ({
 }))
 
 describe('ConnectionBanner', () => {
-  it('does not show banner when disconnected and never connected', () => {
+  it('shows connecting state before the first connection', () => {
     setActivePinia(createPinia())
     const wrapper = mount(ConnectionBanner, {
       global: {
@@ -29,10 +29,10 @@ describe('ConnectionBanner', () => {
         stubs: naiveStubs,
       },
     })
-    expect(wrapper.find('[data-testid="connection-banner"]').exists()).toBe(false)
+    expect(wrapper.get('[role="status"]').text()).toContain('Connecting')
   })
 
-  it('does not show banner when connected', () => {
+  it('shows live state when connected', () => {
     setActivePinia(createPinia())
     const store = useStacksStore()
     store.connectionState = 'connected'
@@ -42,7 +42,7 @@ describe('ConnectionBanner', () => {
         stubs: naiveStubs,
       },
     })
-    expect(wrapper.find('[data-testid="connection-banner"]').exists()).toBe(false)
+    expect(wrapper.get('[role="status"]').text()).toBe('Live')
   })
 
   it('shows reconnecting banner', async () => {

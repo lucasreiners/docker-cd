@@ -8,6 +8,7 @@ import { useStacksStore } from '../src/store/stacks'
 
 // Stub naive-ui components for shallow mounting
 const naiveStubs = {
+  RouterLink: { template: '<a><slot /></a>', props: ['to'] },
   NCard: {
     template: '<div class="n-card"><slot name="header" /><slot /></div>',
     props: ['hoverable'],
@@ -47,6 +48,7 @@ vi.mock('vue-router', () => ({
 vi.mock('../src/services/api', () => ({
   fetchStacks: vi.fn(),
   fetchRefreshStatus: vi.fn(),
+  fetchContainers: vi.fn(() => Promise.resolve([])),
   triggerRefresh: vi.fn(() => Promise.resolve()),
   getEventsURL: vi.fn(() => 'http://localhost:8080/api/events'),
 }))
@@ -126,26 +128,26 @@ describe('StatusBadge', () => {
 
   it('renders synced status', () => {
     const wrapper = mountBadge('synced')
-    expect(wrapper.text()).toContain('Synced')
-    expect(wrapper.find('.n-tag').attributes('data-type')).toBe('success')
+    expect(wrapper.text()).toContain('In sync')
+    expect(wrapper.classes()).toContain('status-success')
   })
 
   it('renders failed status', () => {
     const wrapper = mountBadge('failed')
     expect(wrapper.text()).toContain('Failed')
-    expect(wrapper.find('.n-tag').attributes('data-type')).toBe('error')
+    expect(wrapper.classes()).toContain('status-error')
   })
 
   it('renders syncing status', () => {
     const wrapper = mountBadge('syncing')
-    expect(wrapper.text()).toContain('Syncing')
-    expect(wrapper.find('.n-tag').attributes('data-type')).toBe('warning')
+    expect(wrapper.text()).toContain('Deploying')
+    expect(wrapper.classes()).toContain('status-info')
   })
 
   it('renders missing status', () => {
     const wrapper = mountBadge('missing')
-    expect(wrapper.text()).toContain('Missing')
-    expect(wrapper.find('.n-tag').attributes('data-type')).toBe('info')
+    expect(wrapper.text()).toContain('Not deployed')
+    expect(wrapper.classes()).toContain('status-neutral')
   })
 })
 

@@ -27,6 +27,7 @@ import (
 	"github.com/lucasreiners/docker-cd/internal/events"
 	gitreader "github.com/lucasreiners/docker-cd/internal/git"
 	handler "github.com/lucasreiners/docker-cd/internal/http"
+	"github.com/lucasreiners/docker-cd/internal/operations"
 	"github.com/lucasreiners/docker-cd/internal/reconcile"
 	"github.com/lucasreiners/docker-cd/internal/refresh"
 	"github.com/lucasreiners/docker-cd/internal/scheduler"
@@ -75,6 +76,11 @@ func New(ctx context.Context) (_ *Harness, err error) {
 	if err != nil {
 		return nil, err
 	}
+	history, err := operations.Open(filepath.Join(h.root, "operations.json"))
+	if err != nil {
+		return nil, err
+	}
+	h.Broadcaster.SetOperations(history)
 	h.repo, err = gogit.PlainInitWithOptions(filepath.Join(h.root, "remote"), &gogit.PlainInitOptions{InitOptions: gogit.InitOptions{DefaultBranch: plumbing.NewBranchReferenceName("main")}})
 	if err != nil {
 		return nil, err

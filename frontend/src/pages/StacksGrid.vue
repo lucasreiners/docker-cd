@@ -1,529 +1,307 @@
 <template>
   <div>
-    <!-- Summary Stats -->
-    <div v-if="!store.loading && !store.error" class="summary-stats">
-      <div class="stat-card">
-        <n-text :depth="2" class="stat-label">Total Stacks</n-text>
-        <n-text strong class="stat-value">{{ store.stacks.length }}</n-text>
+    <div class="page-heading">
+      <div>
+        <p class="eyebrow">Resources</p>
+        <h1>
+          Stacks <span class="count-label">{{ store.stacks.length }}</span>
+        </h1>
+        <p>Manage deployments and inspect the services behind them.</p>
       </div>
-      <div class="stat-card stat-success">
-        <n-text :depth="2" class="stat-label">Synced</n-text>
-        <n-text strong class="stat-value">{{ store.statusCounts.synced || 0 }}</n-text>
-      </div>
-      <div class="stat-card stat-warning">
-        <n-text :depth="2" class="stat-label">Syncing</n-text>
-        <n-text strong class="stat-value">{{ store.statusCounts.syncing || 0 }}</n-text>
-      </div>
-      <div class="stat-card stat-error">
-        <n-text :depth="2" class="stat-label">Failed</n-text>
-        <n-text strong class="stat-value">{{ store.statusCounts.failed || 0 }}</n-text>
-      </div>
-    </div>
-
-    <!-- Refresh status -->
-    <n-card
-      v-if="store.refreshStatus"
-      size="small"
-      title="Git State Sync"
-      style="margin-bottom: 16px"
-      :bordered="true"
-      :segmented="{ content: true }"
-    >
-      <div class="refresh-bar">
-        <div class="refresh-info">
-          <div class="refresh-header">
-            <StatusBadge :status="store.refreshStatus.refreshStatus" />
-            <n-text strong style="font-size: 13px">
-              {{ store.refreshStatus.ref }}
-            </n-text>
-            <n-text code style="font-size: 12px">
-              {{ store.refreshStatus.revision?.substring(0, 8) }}
-            </n-text>
-          </div>
-          <n-text
-            v-if="store.refreshStatus.commitMessage"
-            :depth="2"
-            style="font-size: 12px; margin-top: 6px"
-          >
-            {{ truncate(store.refreshStatus.commitMessage, 120) }}
-          </n-text>
-          <n-text :depth="3" style="font-size: 11px; margin-top: 4px">
-            Last refreshed: {{ formatTime(store.refreshStatus.refreshedAt) }}
-          </n-text>
-          <n-text
-            v-if="store.refreshStatus.updatesBlocked"
-            type="error"
-            style="font-size: 12px; margin-top: 6px; display: block"
-          >
-            Updates blocked: {{ store.refreshStatus.blockedReason || 'refresh pending' }}
-          </n-text>
-        </div>
-        <n-button
-          size="small"
-          :loading="refreshing"
-          :disabled="store.refreshStatus.refreshStatus === 'refreshing'"
-          @click="doRefresh"
-          secondary
-        >
-          Refresh Now
-        </n-button>
-      </div>
-      <n-text
-        v-if="refreshError"
-        type="error"
-        style="font-size: 12px; margin-top: 12px; display: block"
+      <router-link to="/repository" class="button"
+        ><GitBranch :size="15" />Repository</router-link
       >
-        {{ refreshError }}
-      </n-text>
-    </n-card>
-
-    <!-- Manual Update Control -->
-    <n-card
-      size="small"
-      title="Stack Updates"
-      style="margin-bottom: 16px"
-      :bordered="true"
-      :segmented="{ content: true }"
-    >
-      <div class="refresh-bar">
-        <div class="refresh-info">
-          <n-text :depth="2" style="font-size: 13px">
-            Manually trigger stack updates (pull images, apply changes, prune unused resources)
-          </n-text>
-          <n-text
-            v-if="store.updateProgress"
-            :type="getProgressType(store.updateProgress.type)"
-            style="font-size: 12px; margin-top: 8px; display: block"
-          >
-            {{ store.updateProgress.message }}
-          </n-text>
-          <n-progress
-            v-if="store.updateProgress?.type === 'stack_progress'"
-            type="line"
-            :percentage="(store.updateProgress.current / store.updateProgress.total) * 100"
-            :show-indicator="false"
-            style="margin-top: 8px"
-          />
-
-          <!-- Image Pull Progress -->
-          <template v-if="store.pullProgress">
-            <div class="pull-progress-section">
-              <div class="pull-progress-header">
-                <n-text strong style="font-size: 12px">
-                  Pulling images for
-                  <n-text code style="font-size: 11px">{{ store.pullProgress.stack }}</n-text>
-                </n-text>
-                <n-tag size="tiny" type="info" round>
-                  {{ store.pullProgress.current }}/{{ store.pullProgress.total }}
-                </n-tag>
-              </div>
-              <template
-                v-for="img in store.pullProgress.images"
-                :key="img.image"
-              >
-              <div class="pull-image-row" :data-image="img.image" :data-done="img.done">
-                <span class="pull-image-done">
-                  <svg
-                    v-if="img.done"
-                    viewBox="0 0 16 16"
-                    width="13"
-                    height="13"
-                    fill="var(--success-color, #18a058)"
-                  >
-                    <path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0z" />
-                  </svg>
-                  <svg
-                    v-else
-                    viewBox="0 0 16 16"
-                    width="13"
-                    height="13"
-                    fill="var(--info-color, #2080f0)"
-                    style="animation: spin 1s linear infinite"
-                  >
-                    <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 1.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11z" opacity=".3" />
-                    <path d="M8 1a7 7 0 0 1 7 7h-1.5A5.5 5.5 0 0 0 8 2.5V1z" />
-                  </svg>
-                </span>
-                <n-text code style="font-size: 11px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">
-                  {{ img.image }}
-                </n-text>
-                <n-text :depth="3" style="font-size: 11px; white-space: nowrap; margin-left: 6px">
-                  {{ img.done ? 'complete' : img.status }}
-                </n-text>
-                <n-text
-                  v-if="img.progress && !img.done"
-                  :depth="3"
-                  style="font-size: 10px; font-family: monospace; white-space: nowrap; margin-left: 6px; color: var(--info-color)"
-                >
-                  {{ img.progress }}
-                </n-text>
-              </div>
-              <div v-for="layer in img.layers" :key="layer.id" class="pull-layer" :data-layer-id="layer.id" :data-bytes="layer.bytesCurrent">
-                <div class="pull-layer-label">
-                  <n-text code>{{ layer.id }}</n-text>
-                  <n-text :depth="3">{{ layer.status }}</n-text>
-                  <n-text :depth="3">{{ layer.bytesTotal > 0 ? `${formatBytes(layer.bytesCurrent)} / ${formatBytes(layer.bytesTotal)}` : layer.progress }}</n-text>
-                </div>
-                <n-progress v-if="layer.bytesTotal > 0" type="line" :percentage="Math.min(100, Math.round(layer.bytesCurrent / layer.bytesTotal * 100))" :show-indicator="false" />
-              </div>
-              </template>
-            </div>
-          </template>
-        </div>
-        <n-button
-          size="small"
-          type="primary"
-          :loading="store.isUpdating"
-          :disabled="store.isUpdating"
-          @click="doUpdate"
+    </div>
+    <div class="saved-views" role="group" aria-label="Saved stack views">
+      <button
+        v-for="item in views"
+        :key="item.value"
+        :aria-pressed="filter === item.value"
+        @click="setQuery({ status: item.value || undefined })"
+      >
+        {{ item.label
+        }}<span v-if="item.value === 'attention'">{{ attentionCount }}</span>
+      </button>
+    </div>
+    <div class="table-toolbar">
+      <label class="search-field"
+        ><Search :size="15" /><input
+          type="search"
+          :value="query"
+          aria-label="Search stacks"
+          placeholder="Search stacks…"
+          @input="
+            setQuery({
+              q: ($event.target as HTMLInputElement).value || undefined,
+            })
+          " /></label
+      ><label class="select-label"
+        ><span class="sr-only">Group stacks</span
+        ><select
+          :value="group"
+          @change="
+            setQuery({
+              group: ($event.target as HTMLSelectElement).value || undefined,
+            })
+          "
         >
-          Update Stacks
-        </n-button>
-      </div>
-    </n-card>
-
-    <!-- Filter pills and search -->
-    <div class="filter-section">
-      <div class="filter-bar">
-        <div class="filter-tags">
-          <n-tag
-            v-for="(count, status) in store.statusCounts"
-            :key="status"
-            size="small"
-            round
-            :type="statusTagType(status as string)"
-            :bordered="filterStatus !== status"
-            :class="{ 'filter-active': filterStatus === status }"
-            style="cursor: pointer"
-            @click="toggleFilter(status as string)"
-          >
-            {{ status }}: {{ count }}
-          </n-tag>
-          <n-button
-            v-if="filterStatus || searchQuery"
-            text
-            size="small"
-            @click="clearFilters"
-            style="font-size: 12px"
-          >
-            Clear filters
-          </n-button>
-        </div>
-        <n-input
-          v-model:value="searchQuery"
-          placeholder="Search stacks..."
-          clearable
-          size="small"
-          style="max-width: 300px"
-          @update:value="store.setSearchQuery"
+          <option value="">No grouping</option>
+          <option value="path">Group by directory</option>
+        </select></label
+      ><MultiSelect
+        v-model="columns"
+        :options="columnOptions"
+        option-label="label"
+        option-value="value"
+        placeholder="Columns"
+        aria-label="Visible columns"
+        :max-selected-labels="0"
+        selected-items-label="Columns ({0})"
+        class="column-picker"
+      />
+      <div class="layout-switch" role="group" aria-label="Stack layout">
+        <button
+          :aria-pressed="view === 'list'"
+          aria-label="List"
+          @click="setQuery({ view: undefined })"
         >
-          <template #prefix>
-            <n-icon>
-              <svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor">
-                <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
-              </svg>
-            </n-icon>
-          </template>
-        </n-input>
+          <List :size="16" /></button
+        ><button
+          :aria-pressed="view === 'grid'"
+          aria-label="Grid"
+          @click="setQuery({ view: 'grid' })"
+        >
+          <LayoutGrid :size="16" />
+        </button>
       </div>
     </div>
-
-    <!-- Loading state -->
-    <n-spin
-      v-if="store.loading"
-      size="large"
-      style="display: flex; justify-content: center; margin-top: 48px"
-    />
-
-    <!-- Error state -->
-    <n-alert
-      v-else-if="store.error"
-      type="error"
-      :title="store.error"
-      style="margin-top: 24px"
-    />
-
-    <!-- Empty state -->
-    <n-empty
-      v-else-if="store.filteredStacks.length === 0"
-      style="margin-top: 48px"
+    <div v-if="query || filter" class="active-filters">
+      <span>{{ displayed.length }} matching stacks</span
+      ><button
+        class="text-link"
+        @click="setQuery({ q: undefined, status: undefined })"
+      >
+        Clear filters
+      </button>
+    </div>
+    <div v-if="store.loading" class="skeleton" role="status">
+      Loading stacks…
+    </div>
+    <div v-else-if="store.error" class="notice notice-error" role="alert">
+      {{ store.error }}
+      <button class="button" @click="store.loadInitial()">Retry</button>
+    </div>
+    <div v-else-if="!displayed.length" class="empty-state surface">
+      <Boxes :size="30" />
+      <h3>
+        {{
+          query || filter
+            ? "No stacks match your filters"
+            : "Your first deployment starts in Git"
+        }}
+      </h3>
+      <p>
+        {{
+          query || filter
+            ? "Try another name or saved view."
+            : "Add a Compose file to your configured repository and check Git for changes."
+        }}
+      </p>
+      <button
+        v-if="query || filter"
+        class="button"
+        @click="setQuery({ q: undefined, status: undefined })"
+      >
+        Clear filters</button
+      ><router-link v-else to="/repository" class="button"
+        >Open repository</router-link
+      >
+    </div>
+    <div
+      v-else-if="view === 'grid'"
+      class="stack-grid"
+      data-testid="stacks-grid"
     >
-      <template #description>
-        <n-text v-if="filterStatus || searchQuery">
-          No stacks match your filters
-        </n-text>
-        <n-text v-else>
-          No stacks found. Stacks will appear here when they are synced from the repository.
-        </n-text>
-      </template>
-      <template #extra>
-        <n-button v-if="filterStatus || searchQuery" size="small" @click="clearFilters">
-          Clear filters
-        </n-button>
-      </template>
-    </n-empty>
-
-    <!-- Grid -->
-    <div v-else class="stack-grid" data-testid="stacks-grid">
       <StackCard
-        v-for="stack in store.filteredStacks"
+        v-for="stack in displayed"
         :key="stack.path"
         :stack="stack"
+        :runtime="consoleStore.runtimeFor(stack.path)"
+        :query="route.query"
       />
+    </div>
+    <div v-else class="surface stack-table" data-testid="stacks-grid">
+      <DataTable
+        :value="displayed"
+        data-key="path"
+        :paginator="displayed.length > 20"
+        :rows="20"
+        :rows-per-page-options="[20, 50, 100]"
+        :size="consoleStore.density === 'compact' ? 'small' : undefined"
+        :row-group-mode="group === 'path' ? 'subheader' : undefined"
+        :group-rows-by="group === 'path' ? 'directory' : undefined"
+      >
+        <template #groupheader="{ data }"
+          ><span class="directory-group"
+            ><Folder :size="14" />{{
+              data.directory || "Repository root"
+            }}</span
+          ></template
+        >
+        <Column field="path" header="Stack"
+          ><template #body="{ data }"
+            ><div class="stack-identity" :data-stack="data.path">
+              <router-link
+                class="resource-link"
+                :to="{
+                  name: 'stack-detail',
+                  params: { path: data.path.split('/') },
+                  query: route.query,
+                }"
+                >{{ data.path }}<ArrowUpRight :size="12"
+              /></router-link>
+              <p
+                class="cell-subtitle"
+                :class="{
+                  'text-error':
+                    data.lastSyncError && !data.requiresAcknowledgement,
+                }"
+                :title="data.lastSyncError || data.syncedCommitMessage"
+              >
+                {{
+                  data.requiresAcknowledgement
+                    ? "Configuration change awaiting approval"
+                    : data.lastSyncError ||
+                      data.syncedCommitMessage ||
+                      "Waiting for deployment"
+                }}
+              </p>
+            </div></template
+          ></Column
+        >
+        <Column v-if="columns.includes('deployment')" header="Deployment"
+          ><template #body="{ data }"
+            ><StatusBadge
+              :status="data.status"
+              :acknowledgement="data.requiresAcknowledgement" /></template
+        ></Column>
+        <Column v-if="columns.includes('runtime')" header="Runtime"
+          ><template #body="{ data }"
+            ><div class="runtime-cell">
+              <span
+                >{{ data.containersRunning ?? "—" }} /
+                {{ data.containersTotal ?? "—" }} running</span
+              ><small
+                :class="runtimeHealth(consoleStore.runtimeFor(data.path)).tone"
+                >{{
+                  runtimeHealth(consoleStore.runtimeFor(data.path)).label
+                }}</small
+              >
+            </div></template
+          ></Column
+        >
+        <Column
+          v-if="columns.includes('revision')"
+          header="Revision"
+          class="secondary-column"
+          ><template #body="{ data }"
+            ><code>{{
+              data.syncedRevision?.slice(0, 8) || "—"
+            }}</code></template
+          ></Column
+        >
+        <Column
+          v-if="columns.includes('deployed')"
+          header="Last deployed"
+          class="secondary-column"
+          ><template #body="{ data }"
+            ><RelativeTime :value="data.syncedAt" /></template
+        ></Column>
+      </DataTable>
+    </div>
+    <div class="table-caption">
+      <span>Runtime observed <RelativeTime :value="observedAt"/> · Deployment and health are independent.</span
+      ><button class="text-link" @click="consoleStore.loadRuntime()">
+        Refresh runtime
+      </button>
     </div>
   </div>
 </template>
-
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ArrowUpRight, Boxes, Folder, GitBranch, LayoutGrid, List, Search } from 'lucide-vue-next'
+import Column from 'primevue/column'
+import DataTable from 'primevue/datatable'
+import MultiSelect from 'primevue/multiselect'
+import { computed, ref, watch } from 'vue'
+import { type LocationQueryRaw, useRoute, useRouter } from 'vue-router'
+import RelativeTime from '../components/RelativeTime.vue'
 import StackCard from '../components/StackCard.vue'
 import StatusBadge from '../components/StatusBadge.vue'
-import { triggerRefresh, triggerUpdate } from '../services/api'
+import { useConsoleStore } from '../store/console'
 import { useStacksStore } from '../store/stacks'
+import { needsAttention, runtimeHealth } from '../utils/stackState'
 
-const store = useStacksStore()
-const searchQuery = ref('')
-const filterStatus = ref('')
-const refreshing = ref(false)
-const refreshError = ref<string | null>(null)
-
-async function doRefresh() {
-  refreshing.value = true
-  refreshError.value = null
+const store = useStacksStore(),
+  consoleStore = useConsoleStore(),
+  route = useRoute(),
+  router = useRouter()
+const query = computed(() => (typeof route.query.q === 'string' ? route.query.q : ''))
+const filter = computed(() => (typeof route.query.status === 'string' ? route.query.status : ''))
+const group = computed(() => (route.query.group === 'path' ? 'path' : ''))
+const view = computed(() => (route.query.view === 'grid' ? 'grid' : 'list'))
+const views = [
+  { label: 'All stacks', value: '' },
+  { label: 'Needs attention', value: 'attention' },
+  { label: 'Deploying', value: 'syncing' },
+  { label: 'No health checks', value: 'unchecked' },
+]
+const columnOptions = [
+  { label: 'Deployment', value: 'deployment' },
+  { label: 'Runtime', value: 'runtime' },
+  { label: 'Revision', value: 'revision' },
+  { label: 'Last deployed', value: 'deployed' },
+]
+function loadColumns() {
   try {
-    await triggerRefresh()
-  } catch (e) {
-    refreshError.value = e instanceof Error ? e.message : 'Refresh failed'
-  } finally {
-    refreshing.value = false
-  }
+    const value = JSON.parse(localStorage.getItem('docker-cd-columns') || 'null')
+    if (Array.isArray(value) && value.every((v) => columnOptions.some((c) => c.value === v)))
+      return value as string[]
+  } catch {}
+  return columnOptions.map((c) => c.value)
 }
-
-async function doUpdate() {
-  try {
-    await triggerUpdate()
-  } catch (e) {
-    // Error will be shown via SSE events or can be handled here if needed
-    console.error('Failed to trigger update:', e)
-  }
+const columns = ref(loadColumns())
+const observedAt = computed(() =>
+  Object.values(consoleStore.runtime)
+    .map((o) => o.observedAt || '')
+    .sort()
+    .pop(),
+)
+watch(columns, (value) => localStorage.setItem('docker-cd-columns', JSON.stringify(value)))
+function setQuery(values: LocationQueryRaw) {
+  router.replace({ query: { ...route.query, ...values } })
 }
-
-function getProgressType(type: string): 'success' | 'error' | 'warning' | 'info' {
-  if (type === 'completed') return 'success'
-  if (type === 'stack_error') return 'error'
-  if (type === 'stack_success') return 'success'
-  return 'info'
-}
-
-function truncate(s: string, max: number): string {
-  return s.length > max ? `${s.substring(0, max)}...` : s
-}
-
-function formatBytes(bytes: number): string {
-  return `${(bytes / 1024 / 1024).toFixed(1)} MiB`
-}
-
-function formatTime(iso: string): string {
-  try {
-    const date = new Date(iso)
-    return date.toLocaleString(undefined, {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  } catch {
-    return iso
-  }
-}
-
-function statusTagType(status: string): 'success' | 'warning' | 'error' | 'info' | 'default' {
-  switch (status) {
-    case 'synced':
-      return 'success'
-    case 'syncing':
-      return 'warning'
-    case 'failed':
-      return 'error'
-    case 'missing':
-      return 'info'
-    case 'deleting':
-      return 'warning'
-    default:
-      return 'default'
-  }
-}
-
-function toggleFilter(status: string) {
-  if (filterStatus.value === status) {
-    filterStatus.value = ''
-    store.setFilterStatus('')
-  } else {
-    filterStatus.value = status
-    store.setFilterStatus(status)
-  }
-}
-
-function clearFilters() {
-  filterStatus.value = ''
-  searchQuery.value = ''
-  store.setFilterStatus('')
-  store.setSearchQuery('')
-}
+const attentionCount = computed(
+  () => store.stacks.filter((s) => needsAttention(s, consoleStore.runtimeFor(s.path))).length,
+)
+const displayed = computed(() =>
+  store.stacks
+    .filter(
+      (s) =>
+        s.path.toLowerCase().includes(query.value.toLowerCase()) &&
+        (!filter.value ||
+          (filter.value === 'attention'
+            ? needsAttention(s, consoleStore.runtimeFor(s.path))
+            : filter.value === 'unchecked'
+              ? runtimeHealth(consoleStore.runtimeFor(s.path)).label === 'No health checks'
+              : s.status === filter.value)),
+    )
+    .map((s) => ({
+      ...s,
+      directory: s.path.includes('/') ? s.path.slice(0, s.path.lastIndexOf('/')) : '',
+    }))
+    .sort(
+      (a, b) =>
+        (group.value ? a.directory.localeCompare(b.directory) : 0) || a.path.localeCompare(b.path),
+    ),
+)
 </script>
-
-<style scoped>
-.stack-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-  gap: 16px;
-  grid-auto-rows: 1fr;
-}
-
-.summary-stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 12px;
-  margin-bottom: 20px;
-}
-
-.stat-card {
-  padding: 16px;
-  border-radius: 8px;
-  background: var(--bg-secondary);
-  border: 2px solid var(--border-color);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.stat-success {
-  border-color: var(--success-text);
-  background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--accent-bg) 100%);
-}
-
-.stat-warning {
-  border-color: var(--warning-text);
-}
-
-.stat-error {
-  border-color: var(--error-text);
-}
-
-.stat-label {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.stat-value {
-  font-size: 28px;
-  line-height: 1;
-}
-
-.filter-section {
-  margin-bottom: 24px;
-}
-
-.refresh-bar {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.refresh-info {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  flex: 1;
-}
-
-.refresh-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.filter-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.filter-tags {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  flex: 1;
-}
-
-.filter-active {
-  box-shadow: 0 0 0 2px var(--border-hover);
-  transform: scale(1.05);
-}
-
-/* Responsive adjustments */
-@media (max-width: 768px) {
-  .summary-stats {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  
-  .filter-bar {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  
-  .filter-bar input {
-    max-width: 100% !important;
-  }
-  
-  .refresh-bar {
-    flex-direction: column;
-    align-items: stretch;
-  }
-}
-
-.pull-progress-section {
-  margin-top: 10px;
-  border-top: 1px solid var(--border-color, rgba(128, 128, 128, 0.2));
-  padding-top: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.pull-progress-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
-}
-
-.pull-image-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-}
-
-.pull-image-done {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-}
-
-.pull-layer { padding: 4px 0 4px 22px; }
-.pull-layer-label { display: flex; flex-wrap: wrap; gap: 12px; font-size: 11px; }
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-</style>

@@ -50,13 +50,16 @@ type StackRecord struct {
 	ContainersTotal   int `json:"containersTotal"`
 
 	// Sync metadata (populated after reconciliation)
-	SyncedRevision      string `json:"syncedRevision,omitempty"`
-	SyncedCommitMessage string `json:"syncedCommitMessage,omitempty"`
-	SyncedComposeHash   string `json:"syncedComposeHash,omitempty"`
-	SyncedAt            string `json:"syncedAt,omitempty"`
-	LastSyncAt          string `json:"lastSyncAt,omitempty"`
-	LastSyncStatus      string `json:"lastSyncStatus,omitempty"`
-	LastSyncError       string `json:"lastSyncError,omitempty"`
+	SyncedRevision          string `json:"syncedRevision,omitempty"`
+	SyncedCommitMessage     string `json:"syncedCommitMessage,omitempty"`
+	SyncedComposeHash       string `json:"syncedComposeHash,omitempty"`
+	SyncedAt                string `json:"syncedAt,omitempty"`
+	LastSyncAt              string `json:"lastSyncAt,omitempty"`
+	LastSyncStatus          string `json:"lastSyncStatus,omitempty"`
+	LastSyncError           string `json:"lastSyncError,omitempty"`
+	StatusReason            string `json:"statusReason,omitempty"`
+	RequiresAcknowledgement bool   `json:"requiresAcknowledgement"`
+	DesiredRevision         string `json:"desiredRevision,omitempty"`
 }
 
 // Snapshot represents the latest desired state loaded from Git.

@@ -3,6 +3,7 @@ package desiredstate
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/lucasreiners/docker-cd/internal/operations"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -48,6 +49,7 @@ func (s *Subscriber) Done() <-chan struct{} {
 
 // Broadcaster fans out SSE events to all connected subscribers.
 type Broadcaster struct {
+	operations  *operations.Store
 	mu          sync.RWMutex
 	subscribers map[*Subscriber]struct{}
 	eventID     atomic.Int64
@@ -57,7 +59,9 @@ type Broadcaster struct {
 
 // NewBroadcaster creates a new SSE event broadcaster.
 func NewBroadcaster() *Broadcaster {
+	operationStore, _ := operations.Open("")
 	return &Broadcaster{
+		operations:  operationStore,
 		subscribers: make(map[*Subscriber]struct{}),
 		progress:    make(map[string]json.RawMessage),
 		pulls:       make(map[string]map[string]json.RawMessage),

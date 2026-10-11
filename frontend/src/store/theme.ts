@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
+import { palettes } from '../styles/tokens'
 
 export const useThemeStore = defineStore('theme', () => {
   const STORAGE_KEY = 'docker-cd-theme'
@@ -24,28 +25,14 @@ export const useThemeStore = defineStore('theme', () => {
     const theme = isDark.value ? 'dark' : 'light'
     document.documentElement.setAttribute('data-theme', theme)
     document.documentElement.style.colorScheme = theme
+    for (const [key, value] of Object.entries(palettes[theme])) {
+      document.documentElement.style.setProperty(`--${key}`, value)
+    }
   }
 
   // Toggle between light and dark with smooth coordinated transition
   const toggleTheme = () => {
-    const root = document.documentElement
-
-    // Add subtle fade effect and disable component transitions
-    root.style.transition = 'opacity 0.15s ease-in-out'
-    root.style.opacity = '0.95'
-    root.classList.add('theme-transitioning')
-
-    // Change theme
     isDark.value = !isDark.value
-
-    // Restore after transition completes
-    requestAnimationFrame(() => {
-      setTimeout(() => {
-        root.classList.remove('theme-transitioning')
-        root.style.opacity = ''
-        root.style.transition = ''
-      }, 150)
-    })
   }
 
   // Set theme explicitly

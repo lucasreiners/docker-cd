@@ -1,0 +1,5 @@
+services:
+  worker:
+    image: busybox:1.38.0
+    command: [sleep, "3600"]
+    deliberately_invalid_demo_property: true

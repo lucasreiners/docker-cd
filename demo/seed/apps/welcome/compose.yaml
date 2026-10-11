@@ -1,0 +1,18 @@
+services:
+  web:
+    image: nginx:alpine
+    ports: ["18088:80"]
+    environment:
+      DEMO_VERSION: v1
+    command:
+      - /bin/sh
+      - -c
+      - |
+        printf '<h1>Docker-CD demo</h1><p>Version: %s</p><p>Edit this stack in Gitea and watch it deploy.</p>' "$$DEMO_VERSION" > /usr/share/nginx/html/index.html
+        exec nginx -g 'daemon off;'
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1/]
+      interval: 5s
+      timeout: 2s
+      retries: 3
+    restart: unless-stopped

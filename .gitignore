@@ -61,3 +61,6 @@ backend/coverage.out
 
 # LEAD agent state
 .lead/state.json
+
+# Local demo Python tooling
+/demo/__pycache__/

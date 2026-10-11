@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/lucasreiners/docker-cd/internal/desiredstate"
+	"github.com/lucasreiners/docker-cd/internal/operations"
 )
 
 // ComposeRunner abstracts docker compose command execution.
@@ -213,7 +214,14 @@ func (r *Reconciler) Reconcile(ctx context.Context) []ReconciliationRun {
 		if r.policy.DriftPolicy == "flag" {
 			if !r.ackStore.IsAcknowledged(drift.Path) {
 				r.logger.Info("stack has drift but policy is 'flag' and not acknowledged, skipping", "stack_path", drift.Path)
-				r.stateManager.UpdateStatus(drift.Path, desiredstate.StackSyncFailed, "", "drift detected, awaiting acknowledgement")
+				r.stateManager.MarkAwaitingAcknowledgement(drift.Path, drift.Reason)
+				if r.broadcaster != nil {
+					for _, st := range r.store.GetStacks() {
+						if st.Path == drift.Path {
+							r.broadcaster.PublishStackUpsert(st)
+						}
+					}
+				}
 				continue
 			}
 			// Clear acknowledgement after use
@@ -261,11 +269,26 @@ func (r *Reconciler) ReconcileStack(ctx context.Context, stackPath string) Recon
 }
 
 func (r *Reconciler) syncStack(ctx context.Context, drift DriftResult, snap *desiredstate.Snapshot) ReconciliationRun {
+	ctx = r.broadcaster.BeginOperation(ctx, "deployment", operations.Trigger(ctx), drift.Path, snap.Revision)
 	run := ReconciliationRun{
 		StackPath:       drift.Path,
 		DesiredRevision: snap.Revision,
 		StartedAt:       time.Now(),
 	}
+	defer func() {
+		status := "completed"
+		if run.Result != "success" {
+			status = "failed"
+		}
+		if ctx.Err() != nil {
+			status = "cancelled"
+		}
+		message := run.Error
+		if message == "" {
+			message = "Stack deployed successfully"
+		}
+		r.broadcaster.EndOperation(ctx, status, message)
+	}()
 
 	// Find the stack record to get compose file and hash
 	var stack *desiredstate.StackRecord
@@ -333,6 +356,7 @@ func (r *Reconciler) syncStack(ctx context.Context, drift DriftResult, snap *des
 	// Explicitly pull images with progress reporting before compose up.
 	// When imagePuller is nil, ComposeUp will pull images implicitly (no progress).
 	if r.imagePuller != nil {
+		r.broadcaster.OperationStep(ctx, "pulling", "Pulling images declared by this stack")
 		images := ExtractComposeImages(stack.Content)
 		if len(images) > 0 {
 			var onProgress PullProgressFn
@@ -367,6 +391,7 @@ func (r *Reconciler) syncStack(ctx context.Context, drift DriftResult, snap *des
 	}
 
 	// Run docker compose up
+	r.broadcaster.OperationStep(ctx, "deploying", "Applying Compose configuration")
 	if r.broadcaster != nil {
 		r.broadcaster.PublishUpdateProgress(map[string]interface{}{
 			"type": "stack_deploying", "source": "reconcile", "stack": drift.Path,
@@ -393,6 +418,9 @@ func (r *Reconciler) syncStack(ctx context.Context, drift DriftResult, snap *des
 	// Update status to synced with metadata
 	now := time.Now().UTC().Format(time.RFC3339)
 	r.stateManager.MarkSynced(drift.Path, snap.Revision, commitMessage, stack.ComposeHash, now)
+	if r.broadcaster != nil {
+		r.broadcaster.Operations().SaveSource(drift.Path, snap.Revision, stack.ComposeHash, string(stack.Content))
+	}
 
 	// Update container counts
 	r.stateManager.UpdateContainerCounts(ctx, drift.Path, projectName)
@@ -414,6 +442,18 @@ func (r *Reconciler) removeStack(ctx context.Context, drift DriftResult, snap *d
 	}
 
 	r.logger.Info("removing stack", "stack_path", drift.Path, "reason", drift.Reason)
+	ctx = r.broadcaster.BeginOperation(ctx, "removal", operations.Trigger(ctx), drift.Path, snap.Revision)
+	defer func() {
+		status, message := "completed", "Stack removed"
+		if run.Result != "success" {
+			status = "failed"
+			message = run.Error
+		}
+		if ctx.Err() != nil {
+			status = "cancelled"
+		}
+		r.broadcaster.EndOperation(ctx, status, message)
+	}()
 
 	r.stateManager.UpdateStatus(drift.Path, desiredstate.StackSyncDeleting, "", "")
 
@@ -434,6 +474,9 @@ func (r *Reconciler) removeStack(ctx context.Context, drift DriftResult, snap *d
 	run.Result = "success"
 	run.FinishedAt = time.Now()
 	r.logger.Info("removal succeeded", "stack_path", drift.Path)
+	if r.broadcaster != nil {
+		r.broadcaster.Operations().RemoveSource(drift.Path)
+	}
 
 	// Mark stack as missing after removal
 	r.stateManager.UpdateStatus(drift.Path, desiredstate.StackSyncMissing, "", "")

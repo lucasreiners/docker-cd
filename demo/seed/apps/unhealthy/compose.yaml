@@ -1,0 +1,13 @@
+services:
+  worker:
+    image: busybox:1.38.0
+    command:
+      - sh
+      - -c
+      - while true; do echo "DEMO unhealthy worker is running; its health check deliberately fails"; sleep 5; done
+    healthcheck:
+      test: [CMD, "false"]
+      interval: 5s
+      timeout: 2s
+      retries: 2
+    restart: unless-stopped

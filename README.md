@@ -19,6 +19,7 @@ ArgoCD, but for Docker. A GitOps continuous delivery agent for Docker Compose en
 | `DRIFT_POLICY` | no | `revert` | Drift handling: `revert` (auto-fix) or `flag` (require ack) |
 | `UPDATER_ENABLED` | no | `false` | Enable/disable scheduled image updates |
 | `UPDATER_CRON` | no | `0 3 * * *` | Cron expression for update schedule (default: 3 AM UTC daily) |
+| `DATA_DIR` | no | `/data` | Persistent operation-history directory; mount a writable volume here |
 
 The service validates repository access on startup and exits immediately if any required variable is missing or credentials are invalid.
 
@@ -142,8 +143,81 @@ not exposed by the production application.
 The lifecycle is one sequential browser scenario against a disposable fixture;
 retries are disabled to avoid hiding failures behind already-mutated state.
 Screenshots and traces are retained on failure. Inspect them with
-`bunx playwright show-report` or `bunx playwright show-trace <trace.zip>`.
+`bunx playwright show-report playwright-report/gitops` or
+`bunx playwright show-trace <trace.zip>`.
 The shared Verify workflow runs both new suites on pull requests and releases.
+
+### Administration console
+
+The Vue administration console has five workspaces: **Overview, Stacks,
+Operations, Repository, and System**. It includes a collapsible sidebar, command
+search (Cmd/Ctrl+K), grouped resource tables, saved views and column preferences,
+tabbed stack details, read-only Compose source, container inspectors, and a global
+operation drawer. Themes and table density are stored in the browser.
+
+The Configuration tab compares the desired Compose file with the source captured
+at the last successful deployment. Applied source snapshots are stored alongside
+history in `${DATA_DIR}/applied-sources.json`; an existing stack gets its first
+snapshot on its next successful deployment. The Logs tab follows stdout/stderr
+for containers belonging to the selected stack, supports pause/filter/download,
+and bounds each stream to 5 minutes or 1 MiB (200 KB retained in the browser).
+Repository diagnostics retain webhook acceptance/signature failures and link
+accepted deliveries to the repository checks they trigger.
+
+Operation summaries are persisted in `${DATA_DIR}/operations.json`. Both Compose
+files mount `operation-data:/data`. The agent retains up to 1000 completed
+operations plus active work, with up to 100 significant steps per operation.
+Unfinished operations become **Interrupted** when the agent restarts. Image-layer
+byte progress remains live state. Keep the data volume to retain history across
+container replacement. Storage failures are reported in the console.
+
+Stack actions apply the reviewed Git revision, enforce refresh readiness and
+reconciliation policy, and run independently of the HTTP connection. Pending drift
+has an explicit acknowledgement action. Per-stack image updates apply only that
+stack and do not perform the instance-wide prune stage. Agent configuration is
+read-only in System; edit the deployment environment to change it. The schedule
+page reports the effective scheduler timezone rather than assuming browser time.
+
+The UI uses MIT-licensed **PrimeVue 4.5.5** and **@primeuix/themes 2.0.3**, pinned
+because the newer major releases use a different licensing model.
+
+### Headed admin-console walkthrough
+
+For a long-lived environment you can explore manually, with its own Docker-in-Docker
+daemon and a local Gitea repository/editor, run:
+
+```bash
+python3 demo/manage.py start
+```
+
+Open http://localhost:18881 for Docker-CD and http://localhost:13000/demo/homelab
+for Git. Demo login, scenarios, and stop/reset commands are in [demo/README.md](demo/README.md).
+
+To watch the redesign in a **headed Chromium browser**, run from `tests/e2e/`
+after installing dependencies in both `frontend/` and `tests/e2e/`:
+
+```bash
+bunx playwright install chromium
+bun run test:redesign:headed
+```
+
+This suite starts Vite on `127.0.0.1:18083` and a test-only API/SSE fixture on
+`127.0.0.1:18082`. It needs no Docker daemon or credentials. Its realistic sample
+data includes pending drift approval, a failed deployment, an unhealthy in-sync
+stack, and retained operation records. The walkthrough exercises sidebar and
+command navigation, filters/grouping, tabs, source, inspectors and focus recovery,
+approval actions, live image progress, reconnect/reload, disabled features, themes,
+mobile layouts, source diffs, logs, webhook diagnostics, and 250-stack pagination.
+Screenshots are attached to its HTML report.
+
+```bash
+bun run test:redesign          # headless verification
+bun run test:redesign:explore  # interactive Playwright UI with replayable steps
+bunx playwright show-report playwright-report/redesign
+```
+
+The existing `bun run test` suite still verifies the full GitOps lifecycle
+against real Docker-in-Docker containers.
 
 #### Long image pulls and layer progress
 

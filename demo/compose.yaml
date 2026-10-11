@@ -1,0 +1,108 @@
+name: docker-cd-demo
+
+services:
+  git:
+    image: gitea/gitea:28.1.0
+    environment:
+      GITEA__security__INSTALL_LOCK: "true"
+      GITEA__security__EGRESS_MODE: strict
+      GITEA__security__ALLOWED_HOST_LIST: backend:8080,private:8080
+      GITEA__server__ROOT_URL: http://localhost:13000/
+      GITEA__server__DISABLE_SSH: "true"
+      GITEA__database__DB_TYPE: sqlite3
+      GITEA__service__DISABLE_REGISTRATION: "true"
+      GITEA__repository__DEFAULT_BRANCH: main
+      GITEA__actions__ENABLED: "false"
+      GITEA__log__LEVEL: Warn
+    ports:
+      - "127.0.0.1:13000:3000"
+    volumes:
+      - git-data:/data
+    healthcheck:
+      test: [CMD-SHELL, "wget -q -O /dev/null http://localhost:3000/api/v1/version"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+    restart: unless-stopped
+
+  git-https:
+    build: ./git-proxy
+    volumes:
+      - git-certs:/certs
+    depends_on:
+      git:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD-SHELL, "wget --no-check-certificate -q -O /dev/null https://127.0.0.1/api/v1/version"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  dind:
+    image: docker:29.9.0-dind
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    volumes:
+      - docker-data:/var/lib/docker
+    ports:
+      - "127.0.0.1:18088:18088"
+      - "127.0.0.1:18089:18089"
+    healthcheck:
+      test: [CMD, docker, info]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+      start_period: 20s
+    restart: unless-stopped
+
+  backend:
+    build: ../backend
+    environment:
+      PORT: "8080"
+      PROJECT_NAME: Docker-CD Demo
+      GIN_MODE: release
+      DOCKER_SOCKET: tcp://dind:2375
+      GIT_REPO_URL: https://git-https/demo/homelab.git
+      GIT_ACCESS_TOKEN: ${DEMO_GIT_TOKEN:-not-seeded}
+      GIT_REVISION: main
+      WEBHOOK_SECRET: docker-cd-demo-webhook
+      REFRESH_POLL_INTERVAL: 30s
+      RECONCILE_ENABLED: "true"
+      RECONCILE_REMOVE_ENABLED: "true"
+      DRIFT_POLICY: ${DEMO_DRIFT_POLICY:-revert}
+      UPDATER_ENABLED: "true"
+      UPDATER_CRON: "0 3 * * *"
+      DATA_DIR: /data
+      SSL_CERT_FILE: /certs/git.crt
+    ports:
+      - "127.0.0.1:18880:8080"
+    volumes:
+      - clone-data:/repo
+      - operation-data:/data
+      - git-certs:/certs:ro
+    depends_on:
+      dind:
+        condition: service_healthy
+      git-https:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build: ../frontend
+    environment:
+      DOCKER_CD_API_BASE_URL: http://backend:8080
+    ports:
+      - "127.0.0.1:18881:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  git-data:
+  git-certs:
+  docker-data:
+  clone-data:
+  operation-data:

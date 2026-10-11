@@ -1,327 +1,266 @@
 <template>
-  <n-card
-    hoverable
+  <article
     class="stack-card"
-    :class="{ 
-      'stack-card--failed': stack.status === 'failed',
-      'stack-card--synced': stack.status === 'synced',
-      'stack-card--syncing': stack.status === 'syncing'
-    }"
-    @click="$router.push({ name: 'stack-detail', params: { path: stack.path.split('/') } })"
-    :segmented="{ content: true }"
+    :class="[`stack-card--${stack.status}`, { 'stack-row': compact }]"
+    :aria-label="stack.path"
+    :data-stack="stack.path"
   >
-    <template #header>
-      <div class="card-header">
-        <div class="header-left">
-          <n-text strong style="font-size: 14px; word-break: break-all; line-height: 1.4">
-            {{ stack.path }}
-          </n-text>
-        </div>
-        <div class="header-badges">
-          <n-tag
-            v-if="stack.containersTotal != null && stack.containersTotal > 0"
-            size="small"
-            round
-            :type="containerPillType"
-            :bordered="false"
-          >
-            {{ stack.containersRunning }}/{{ stack.containersTotal }}
-          </n-tag>
-          <StatusBadge :status="stack.status" />
-        </div>
-      </div>
-    </template>
-    
-    <div class="card-content">
-      <!-- Git Information -->
-      <div v-if="stack.syncedRevision || stack.syncedCommitMessage" class="info-section">
-        <div class="git-info">
-          <div v-if="stack.syncedRevision" class="git-hash">
-            <n-text :depth="3" style="font-size: 11px; font-family: monospace">
-              {{ stack.syncedRevision.substring(0, 8) }}
-            </n-text>
-          </div>
-          <n-text v-if="stack.syncedCommitMessage" :depth="2" style="font-size: 13px; line-height: 1.5">
-            {{ truncate(stack.syncedCommitMessage, 65) }}
-          </n-text>
-        </div>
-      </div>
-
-      <!-- Error State -->
-      <div v-if="stack.lastSyncError" class="error-section">
-        <n-text type="error" strong style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px">
-          Error
-        </n-text>
-        <n-text type="error" style="font-size: 12px; line-height: 1.5">
-          {{ truncate(stack.lastSyncError, 100) }}
-        </n-text>
-      </div>
-
-      <!-- Containers List -->
-      <div v-if="containers.length > 0 || containersLoading || containersError" class="containers-section">
-        <!-- Loading State -->
-        <div v-if="containersLoading" class="containers-loading">
-          <n-text :depth="3" style="font-size: 12px">
-            Loading containers...
-          </n-text>
-        </div>
-
-        <!-- Error State -->
-        <div v-else-if="containersError" class="containers-error">
-          <n-text type="error" style="font-size: 12px">
-            Failed to load containers
-          </n-text>
-        </div>
-
-        <!-- Containers List -->
-        <div v-else class="containers-list">
-          <div
-            v-for="container in sortedContainers"
-            :key="container.id"
-            class="container-item"
-          >
-            <!-- Container with port link -->
-            <a
-              v-if="container.hasExternalPorts"
-              class="container-link"
-              @click="handleContainerClick($event, container)"
-              :title="`Open ${container.name} on port ${container.lowestExternalPort}`"
-            >
-              <span class="arrow">↗</span>
-              <span class="underlined">{{ container.name }}</span>
-            </a>
-
-            <!-- Container without port -->
-            <span v-else class="container-text">
-              {{ container.name }}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Footer -->
-      <div class="card-footer">
-        <n-text :depth="3" style="font-size: 11px">
-          Last sync: {{ formatTime(stack.lastSyncAt) }}
-        </n-text>
-      </div>
+    <div class="stack-identity">
+      <router-link
+        class="stack-name"
+        :to="{
+          name: 'stack-detail',
+          params: { path: stack.path.split('/') },
+          query,
+        }"
+        >{{ stack.path }}<span aria-hidden="true">↗</span></router-link
+      >
+      <p
+        v-if="stack.lastSyncError"
+        class="error-section"
+        :title="stack.lastSyncError"
+      >
+        {{ stack.lastSyncError }}
+      </p>
+      <p v-else class="stack-message" :title="stack.syncedCommitMessage">
+        {{ stack.syncedCommitMessage || "Waiting for first deployment" }}
+      </p>
     </div>
-  </n-card>
+    <div class="stack-deployment">
+      <span class="cell-label">Deployment</span>
+      <StatusBadge :status="stack.status" :acknowledgement="stack.requiresAcknowledgement" />
+      <code v-if="stack.syncedRevision" :title="stack.syncedRevision">{{
+        stack.syncedRevision.slice(0, 8)
+      }}</code>
+    </div>
+    <div class="stack-runtime">
+      <span class="cell-label">Runtime</span>
+      <span
+        v-if="stack.containersTotal != null && stack.containersRunning != null"
+        class="runtime-count"
+        :class="{
+          'text-error': stack.containersRunning < stack.containersTotal,
+        }"
+        >{{ stack.containersRunning }} of
+        {{ stack.containersTotal }} running</span
+      >
+      <span v-else class="muted">Runtime unknown</span>
+      <span class="health-label" :class="health.tone">{{ health.label }}</span>
+    </div>
+    <div class="stack-time">
+      <span class="cell-label">Last deployed</span>
+      <RelativeTime :value="stack.syncedAt" />
+    </div>
+    <div v-if="!compact" class="containers-section">
+      <p v-if="state.loading" class="muted">Loading containers…</p>
+      <p v-else-if="state.error" class="text-warning">
+        Failed to load containers
+      </p>
+      <ul v-else class="containers-list">
+        <li
+          v-for="container in sortedContainers"
+          :key="container.id"
+          class="container-item"
+        >
+          <a
+            v-if="container.port !== null"
+            class="container-link"
+            :href="buildPortURL(container.port)"
+            target="_blank"
+            rel="noopener noreferrer"
+            :title="`Open ${container.name} on port ${container.port}`"
+            ><span class="underlined">{{ container.name }}</span
+            ><span aria-hidden="true">↗</span></a
+          >
+          <span v-else class="container-text">{{ container.name }}</span>
+        </li>
+      </ul>
+    </div>
+  </article>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import type { LocationQuery } from 'vue-router'
+import type { RuntimeState } from '../composables/useRuntimeOverview'
 import { useStackContainers } from '../composables/useStackContainers'
-import type { ContainerInfo, StackRecord } from '../services/api'
-import { buildPortURL, getLowestExternalPort, parsePortString } from '../utils/portUtils'
+import type { StackRecord } from '../services/api'
+import { buildPortURL, getLowestExternalPort } from '../utils/portUtils'
+import { runtimeHealth } from '../utils/stackState'
+import RelativeTime from './RelativeTime.vue'
 import StatusBadge from './StatusBadge.vue'
 
 const props = defineProps<{
   stack: StackRecord
+  compact?: boolean
+  runtime?: RuntimeState
+  query?: LocationQuery
 }>()
-
-const { containers, containersLoading, containersError } = useStackContainers(() => props.stack)
-
-// Sorted containers with port information
-interface ContainerWithPorts extends ContainerInfo {
-  parsedPorts: ReturnType<typeof parsePortString>
-  lowestExternalPort: number | null
-  hasExternalPorts: boolean
-}
-
-const sortedContainers = computed<ContainerWithPorts[]>(() => {
-  return containers.value
-    .map((c) => {
-      const parsedPorts = parsePortString(c.ports || '')
-      const lowestExternalPort = getLowestExternalPort(c.ports || '')
-      const hasExternalPorts = lowestExternalPort !== null
-
-      return {
-        ...c,
-        parsedPorts,
-        lowestExternalPort,
-        hasExternalPorts,
-      }
-    })
-    .sort((a, b) => a.name.localeCompare(b.name))
-})
-
-// Handle container click to open port
-function handleContainerClick(event: MouseEvent, container: ContainerWithPorts): void {
-  if (!container.hasExternalPorts || container.lowestExternalPort === null) {
-    return
-  }
-
-  event.stopPropagation() // Prevent card click from navigating
-  const url = buildPortURL(container.lowestExternalPort)
-  window.open(url, '_blank', 'noopener,noreferrer')
-}
-
-const containerPillType = computed<'success' | 'warning' | 'error'>(() => {
-  if (props.stack.containersRunning === props.stack.containersTotal) return 'success'
-  if (props.stack.containersRunning === 0) return 'error'
-  return 'warning'
-})
-
-function truncate(s: string, max: number): string {
-  return s.length > max ? `${s.substring(0, max)}...` : s
-}
-
-function formatTime(iso: string | undefined): string {
-  if (!iso) return 'Never'
-
-  try {
-    const date = new Date(iso)
-    return date.toLocaleString(undefined, {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  } catch {
-    return iso
-  }
-}
+const local = useStackContainers(() => (props.runtime ? undefined : props.stack))
+const state = computed<RuntimeState>(
+  () =>
+    props.runtime ?? {
+      containers: local.containers.value,
+      loading: local.containersLoading.value,
+      error: local.containersError.value,
+    },
+)
+const health = computed(() => runtimeHealth(state.value))
+const sortedContainers = computed(() =>
+  state.value.containers
+    .map((c) => ({ ...c, port: getLowestExternalPort(c.ports || '') }))
+    .sort((a, b) => a.name.localeCompare(b.name)),
+)
 </script>
 
 <style scoped>
 .stack-card {
-  transition: border-color 0.2s ease;
-  cursor: pointer;
-  position: relative;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  height: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  padding: 22px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
 }
-
-.stack-card--failed {
-  border-left: 4px solid var(--error-text);
-}
-
-.stack-card--synced {
-  border-left: 4px solid var(--success-text);
-}
-
-.stack-card--syncing {
-  border-left: 4px solid var(--warning-text);
-}
-
-.card-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 36px;
-}
-
-.header-left {
-  flex: 1;
+.stack-identity {
+  grid-column: 1 / -1;
   min-width: 0;
 }
-
-.header-badges {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.card-content {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  flex: 1;
-}
-
-.info-section {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.info-label {
-  font-size: 10px;
+.stack-name {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  max-width: 100%;
+  font-size: 15px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 2px;
-}
-
-.git-info {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.git-hash {
-  display: inline-flex;
-  opacity: 0.7;
-}
-
-.error-section {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px;
-  border-radius: 6px;
-  background: var(--accent-bg);
-  border-left: 3px solid var(--error-text);
-}
-
-.containers-section {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.containers-loading,
-.containers-error {
-  padding: 8px 0;
-}
-
-.containers-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.container-item {
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.container-link {
-  cursor: pointer;
+  color: var(--text-primary);
   text-decoration: none;
-  color: inherit;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  transition: opacity 0.2s ease;
+  overflow-wrap: anywhere;
 }
-
-.container-link:hover {
-  opacity: 0.7;
+.stack-name span {
+  color: var(--text-tertiary);
+  font-size: 12px;
 }
-
-.container-link .arrow {
-  font-size: 10px;
-  opacity: 0.8;
-}
-
-.container-link .underlined {
+.stack-name:hover {
+  color: var(--accent);
   text-decoration: underline;
 }
-
-.container-text {
-  color: var(--text-color-secondary);
+.stack-message,
+.error-section {
+  margin-top: 5px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-
-.card-footer {
-  padding-top: 8px;
+.error-section {
+  color: var(--error-text);
+}
+.stack-deployment,
+.stack-runtime,
+.stack-time {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.stack-deployment code {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+.cell-label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-bottom: 3px;
+}
+.health-label {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.health-label.text-error {
+  color: var(--error-text);
+}
+.health-label.text-warning {
+  color: var(--warning-text);
+}
+.health-label.text-success {
+  color: var(--success-text);
+}
+.stack-time {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.containers-section {
+  grid-column: 1 / -1;
   border-top: 1px solid var(--border-color);
-  margin-top: 4px;
+  padding-top: 12px;
+  font-size: 12px;
+}
+.containers-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+}
+.container-link {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.container-text {
+  color: var(--text-secondary);
+}
+.stack-row {
+  grid-template-columns: minmax(180px, 1fr) 150px 185px 140px;
+  align-items: center;
+  gap: 20px;
+  border: 0;
+  border-bottom: 1px solid var(--border-color);
+  border-radius: 0;
+  padding: 19px 22px;
+}
+.stack-row:last-child {
+  border-bottom: 0;
+}
+.stack-row:hover {
+  background: color-mix(in srgb, var(--bg-inset) 40%, var(--bg-secondary));
+}
+.stack-row .stack-identity,
+.stack-row .stack-time {
+  grid-column: auto;
+}
+.stack-row .cell-label {
+  display: none;
+}
+@media (max-width: 1000px) {
+  .stack-row {
+    grid-template-columns: minmax(150px, 1fr) 130px 165px;
+  }
+  .stack-row .stack-time {
+    display: none;
+  }
+}
+@media (max-width: 640px) {
+  .stack-row {
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    padding: 18px 16px;
+  }
+  .stack-row .stack-identity {
+    grid-column: 1 / -1;
+  }
+  .stack-row .cell-label {
+    display: block;
+  }
+  .stack-card {
+    padding: 18px 16px;
+  }
 }
 </style>

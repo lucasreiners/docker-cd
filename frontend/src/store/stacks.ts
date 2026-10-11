@@ -4,8 +4,9 @@
 
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import type { RefreshSnapshot, StackRecord } from '../services/api'
+import type { Operation, RefreshSnapshot, StackRecord } from '../services/api'
 import { fetchRefreshStatus, fetchStacks } from '../services/api'
+import type { ActivityEntry, UpdateProgress } from '../services/progress'
 import type { ConnectionState } from '../services/sse'
 import { SSEClient } from '../services/sse'
 
@@ -42,8 +43,9 @@ export const useStacksStore = defineStore('stacks', () => {
   const searchQuery = ref<string>('')
   const loading = ref(false)
   const error = ref<string | null>(null)
-  // biome-ignore lint/suspicious/noExplicitAny: Progress type varies by event
-  const updateProgress = ref<any>(null)
+  const updateProgress = ref<UpdateProgress | null>(null)
+  const activity = ref<ActivityEntry[]>([])
+  let activityId = 0
   const isUpdating = ref(false)
   const pullProgress = ref<PullProgressState | null>(null)
 
@@ -110,12 +112,13 @@ export const useStacksStore = defineStore('stacks', () => {
     }
   }
 
-  function connectSSE() {
+  function connectSSE(onOperation?: (operation: Operation) => void, onConnected?: () => void) {
     if (sseClient) {
       sseClient.close()
     }
 
     sseClient = new SSEClient({
+      onOperation,
       onSnapshot(records) {
         stackVersion++
         loading.value = false
@@ -147,25 +150,45 @@ export const useStacksStore = defineStore('stacks', () => {
         pullProgress.value = null
         isUpdating.value = false
         for (const item of progress) {
-          const p = item as { type: string; source?: string }
+          const p = item
           const terminal =
             ['completed', 'cancelled'].includes(p.type) ||
             (p.source === 'reconcile' && ['stack_success', 'stack_error'].includes(p.type))
-          if (!terminal) handleProgress(p)
+          if (!terminal) handleProgress(p, false)
         }
       },
       onUpdateProgress: handleProgress,
       onConnectionChange(state) {
         connectionState.value = state
+        if (state === 'connected') onConnected?.()
       },
     })
 
     sseClient.connect()
   }
 
-  // biome-ignore lint/suspicious/noExplicitAny: Progress type varies by event
-  function handleProgress(progress: any) {
+  function handleProgress(progress: UpdateProgress, recordActivity = true) {
     if (progressTimer) clearTimeout(progressTimer)
+    if (recordActivity && progress.type !== 'image_pull_progress') {
+      activity.value.unshift({
+        id: ++activityId,
+        at: progress.timestamp || new Date().toISOString(),
+        stack: progress.stack,
+        message:
+          progress.error ||
+          (progress.errors
+            ? `${progress.message || 'Update completed'} · ${progress.errors} errors`
+            : progress.message) ||
+          progress.type.replace(/_/g, ' '),
+        tone:
+          progress.type === 'stack_error' || progress.errors
+            ? 'error'
+            : ['completed', 'stack_success'].includes(progress.type)
+              ? 'success'
+              : 'info',
+      })
+      activity.value = activity.value.slice(0, 50)
+    }
     if (progress.type !== 'image_pull_progress') updateProgress.value = progress
     const terminal = progress.type === 'completed' || progress.type === 'cancelled'
     if (progress.source !== 'reconcile' && progress.cycle_id) {
@@ -176,7 +199,7 @@ export const useStacksStore = defineStore('stacks', () => {
       pullProgress.value = null
     } else if (progress.type === 'stack_sync_started' || progress.type === 'stack_deploying') {
       pullProgress.value = null
-    } else if (progress.type === 'image_pull_progress') {
+    } else if (progress.type === 'image_pull_progress' && progress.image && progress.stack) {
       const isDone =
         progress.done === true || (!progress.layerId && progress.status === 'Pull complete')
 
@@ -184,8 +207,8 @@ export const useStacksStore = defineStore('stacks', () => {
         pullProgress.value = {
           stack: progress.stack,
           images: [],
-          current: progress.current,
-          total: progress.total,
+          current: progress.current ?? 0,
+          total: progress.total ?? 0,
         }
       }
 
@@ -204,7 +227,7 @@ export const useStacksStore = defineStore('stacks', () => {
       if (progress.layerId) {
         const layer: LayerPullStatus = {
           id: progress.layerId,
-          status: progress.status,
+          status: progress.status ?? '',
           progress: progress.progress ?? '',
           bytesCurrent: progress.bytesCurrent ?? 0,
           bytesTotal: progress.bytesTotal ?? 0,
@@ -214,12 +237,12 @@ export const useStacksStore = defineStore('stacks', () => {
         if (index < 0) existing.layers.push(layer)
         else existing.layers[index] = layer
       } else {
-        existing.status = progress.status
+        existing.status = progress.status ?? ''
         existing.progress = progress.progress ?? ''
         existing.done = isDone
       }
-      pullProgress.value.current = progress.current
-      pullProgress.value.total = progress.total
+      pullProgress.value.current = progress.current ?? 0
+      pullProgress.value.total = progress.total ?? 0
     } else if (progress.type === 'stack_success' || progress.type === 'stack_error' || terminal) {
       if (terminal || pullProgress.value?.stack === progress.stack) pullProgress.value = null
       if (terminal) {
@@ -253,6 +276,7 @@ export const useStacksStore = defineStore('stacks', () => {
   }
 
   return {
+    activity,
     // State
     stackMap,
     refreshStatus,

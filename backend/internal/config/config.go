@@ -20,6 +20,7 @@ type Config struct {
 	Port         int
 	ProjectName  string
 	DockerSocket string
+	DataDir      string
 
 	// Git repository settings
 	GitRepoURL     string
@@ -112,6 +113,7 @@ func Load() (Config, []string) {
 	}
 
 	cfg := Config{
+		DataDir:                os.Getenv("DATA_DIR"),
 		Port:                   port,
 		ProjectName:            projectName,
 		DockerSocket:           dockerSocket,
@@ -126,6 +128,9 @@ func Load() (Config, []string) {
 		DriftPolicy:            driftPolicy,
 		UpdaterEnabled:         updaterEnabled,
 		UpdaterCron:            updaterCron,
+	}
+	if cfg.DataDir == "" {
+		cfg.DataDir = "/data"
 	}
 
 	var errs []string
