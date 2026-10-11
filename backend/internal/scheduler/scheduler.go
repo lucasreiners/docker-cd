@@ -288,6 +288,14 @@ func (s *SchedulerService) executeUpdateCycleManual(ctx context.Context, cycle *
 
 // executeUpdateCycle performs the actual update operations (T013-T019)
 func (s *SchedulerService) executeUpdateCycle(ctx context.Context, cycle *UpdateCycle) {
+	defer func() {
+		if ctx.Err() != nil && s.broadcaster != nil {
+			s.broadcaster.PublishUpdateProgress(map[string]interface{}{
+				"type": "cancelled", "cycle_id": cycle.CycleID,
+				"message": "Update cycle cancelled", "timestamp": time.Now(),
+			})
+		}
+	}()
 	if ctx.Err() != nil {
 		s.logger.Warn("update cycle canceled before start", "cycle_id", cycle.CycleID)
 		return
@@ -355,15 +363,19 @@ func (s *SchedulerService) executeUpdateCycle(ctx context.Context, cycle *Update
 		if s.broadcaster != nil {
 			onPullProgress = func(p docker.PullProgress) {
 				s.broadcaster.PublishUpdateProgress(map[string]interface{}{
-					"type":      "image_pull_progress",
-					"cycle_id":  cycle.CycleID,
-					"stack":     stack.Path,
-					"image":     p.Image,
-					"status":    p.Status,
-					"progress":  p.Progress,
-					"current":   p.Current,
-					"total":     p.Total,
-					"timestamp": time.Now(),
+					"type":         "image_pull_progress",
+					"cycle_id":     cycle.CycleID,
+					"stack":        stack.Path,
+					"image":        p.Image,
+					"status":       p.Status,
+					"progress":     p.Progress,
+					"current":      p.Current,
+					"total":        p.Total,
+					"layerId":      p.LayerID,
+					"bytesCurrent": p.BytesCurrent,
+					"bytesTotal":   p.BytesTotal,
+					"done":         p.Done,
+					"timestamp":    time.Now(),
 				})
 			}
 		}

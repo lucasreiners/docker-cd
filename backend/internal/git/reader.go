@@ -16,7 +16,7 @@ import (
 type ComposeEntry struct {
 	// StackPath is the directory containing the compose file (relative to deploy dir).
 	StackPath string
-	// ComposeFile is the filename (docker-compose.yml or docker-compose.yaml).
+	// ComposeFile is a supported Compose filename.
 	ComposeFile string
 	// Content is the raw compose file content.
 	Content []byte
@@ -33,8 +33,7 @@ type ComposeReader interface {
 // GoGitComposeReader implements ComposeReader using go-git.
 type GoGitComposeReader struct{}
 
-// ReadComposeFiles performs a shallow clone and scans for docker-compose.yml/yaml files
-// in immediate subdirectories of the deploy directory.
+// ReadComposeFiles performs a shallow clone and recursively scans stack directories.
 // Returns the list of compose entries, resolved commit hash, commit message, and error.
 func (g *GoGitComposeReader) ReadComposeFiles(ctx context.Context, repoURL, token, revision, deployDir string) ([]ComposeEntry, string, string, error) {
 	repo, err := gogit.CloneContext(ctx, memory.NewStorage(), nil, &gogit.CloneOptions{
@@ -72,46 +71,21 @@ func (g *GoGitComposeReader) ReadComposeFiles(ctx context.Context, repoURL, toke
 
 	// Navigate to deploy directory if specified
 	tree := rootTree
-	if deployDir != "" {
-		deployDir = strings.Trim(deployDir, "/")
+	if deployDir = strings.Trim(deployDir, "/"); deployDir != "" {
 		tree, err = rootTree.Tree(deployDir)
 		if err != nil {
 			return nil, "", "", fmt.Errorf("deploy dir %q not found: %w", deployDir, err)
 		}
 	}
 
-	var entries []ComposeEntry
-
-	// Iterate immediate subdirectories
-	for _, entry := range tree.Entries {
-		if entry.Mode.IsFile() {
-			continue
-		}
-
-		subtree, err := tree.Tree(entry.Name)
-		if err != nil {
-			continue
-		}
-
-		composeFile, content, err := findComposeFile(subtree)
-		if err != nil || composeFile == "" {
-			continue
-		}
-
-		entries = append(entries, ComposeEntry{
-			StackPath:   entry.Name,
-			ComposeFile: composeFile,
-			Content:     content,
-		})
-	}
-
-	return entries, commitHash, commitMessage, nil
+	entries, err := scanComposeEntries(tree, "")
+	return entries, commitHash, commitMessage, err
 }
 
-// findComposeFile looks for docker-compose.yml or docker-compose.yaml in a tree.
-// Prefers docker-compose.yml when both exist.
+// findComposeFile preserves legacy filename precedence, then accepts Compose's
+// newer compose.yaml/compose.yml names. One directory produces one stack.
 func findComposeFile(tree *object.Tree) (string, []byte, error) {
-	candidates := []string{"docker-compose.yml", "docker-compose.yaml"}
+	candidates := []string{"docker-compose.yml", "docker-compose.yaml", "compose.yaml", "compose.yml"}
 
 	for _, name := range candidates {
 		file, err := tree.File(name)

@@ -80,10 +80,12 @@ func (s *Service) RequestRefresh(source TriggerSource) QueueResult {
 }
 
 func (s *Service) enqueueRefresh(source TriggerSource) QueueResult {
-	if s.cancelRecon != nil {
+	// Polling observes Git on a schedule, not a deployment deadline. Queue it
+	// behind an active sync so large pulls are not repeatedly cancelled.
+	if source != TriggerPeriodic && s.cancelRecon != nil {
 		s.cancelRecon()
 	}
-	if s.cancelUpd != nil {
+	if source != TriggerPeriodic && s.cancelUpd != nil {
 		s.cancelUpd()
 	}
 
@@ -183,19 +185,12 @@ func (s *Service) buildStacksPreservingStatus(entries []git.ComposeEntry) []desi
 
 		status := desiredstate.StackSyncMissing
 		rec := desiredstate.StackRecord{}
-		if prev, ok := existing[e.StackPath]; ok && prev.ComposeHash == hash {
-			status = prev.Status
-			log.Printf("[debug] buildStacksPreservingStatus: stack=%s status=%s (preserved, hash match)", e.StackPath, status)
-			// Preserve sync metadata from previous state
-			rec.SyncedRevision = prev.SyncedRevision
-			rec.SyncedCommitMessage = prev.SyncedCommitMessage
-			rec.SyncedComposeHash = prev.SyncedComposeHash
-			rec.SyncedAt = prev.SyncedAt
-			rec.LastSyncAt = prev.LastSyncAt
-			rec.LastSyncStatus = prev.LastSyncStatus
-			rec.LastSyncError = prev.LastSyncError
-		} else if prev, ok := existing[e.StackPath]; ok {
-			log.Printf("[debug] buildStacksPreservingStatus: stack=%s status=missing (hash changed: prev=%s new=%s)", e.StackPath, truncate(prev.ComposeHash, 12), truncate(hash, 12))
+		if prev, ok := existing[e.StackPath]; ok {
+			rec = prev
+			if prev.ComposeHash == hash {
+				status = prev.Status
+			}
+			log.Printf("[debug] buildStacksPreservingStatus: stack=%s status=%s (runtime metadata preserved)", e.StackPath, status)
 		} else {
 			log.Printf("[debug] buildStacksPreservingStatus: stack=%s status=missing (new stack)", e.StackPath)
 		}

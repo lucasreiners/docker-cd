@@ -130,7 +130,7 @@ func TestDinD_ListContainersWithLabel_RealDaemon(t *testing.T) {
 	client := docker.NewClient(sdkAPI)
 
 	labelValue := "my/stack,path"
-	_, err := runner.Run(context.Background(), "docker", "run", "-d",
+	_, err = runner.Run(context.Background(), "docker", "run", "-d",
 		"--label", fmt.Sprintf("%s=%s", reconcile.LabelStackPath, labelValue),
 		"--label", fmt.Sprintf("%s=rev1", reconcile.LabelDesiredRevision),
 		"--label", fmt.Sprintf("%s=hash1", reconcile.LabelDesiredComposeHash),
@@ -189,7 +189,6 @@ func TestDinD_ListContainersWithLabel_MultipleContainers(t *testing.T) {
 
 func TestDinD_ListContainersWithLabel_NoMatch(t *testing.T) {
 	env := dind.StartT(t)
-	runner := &dindRunner{Host: env.DockerHost}
 	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
 	if err != nil {
 		t.Fatalf("SDK client: %v", err)

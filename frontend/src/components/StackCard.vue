@@ -110,9 +110,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed } from 'vue'
+import { useStackContainers } from '../composables/useStackContainers'
 import type { ContainerInfo, StackRecord } from '../services/api'
-import { fetchContainers } from '../services/api'
 import { buildPortURL, getLowestExternalPort, parsePortString } from '../utils/portUtils'
 import StatusBadge from './StatusBadge.vue'
 
@@ -120,24 +120,7 @@ const props = defineProps<{
   stack: StackRecord
 }>()
 
-// Container state
-const containers = ref<ContainerInfo[]>([])
-const containersLoading = ref(false)
-const containersError = ref<string | null>(null)
-
-// Fetch containers on mount
-onMounted(async () => {
-  try {
-    containersLoading.value = true
-    containersError.value = null
-    containers.value = await fetchContainers(props.stack.path)
-  } catch (error) {
-    console.error(`Failed to fetch containers for ${props.stack.path}:`, error)
-    containersError.value = error instanceof Error ? error.message : 'Failed to load containers'
-  } finally {
-    containersLoading.value = false
-  }
-})
+const { containers, containersLoading, containersError } = useStackContainers(() => props.stack)
 
 // Sorted containers with port information
 interface ContainerWithPorts extends ContainerInfo {

@@ -172,6 +172,8 @@ func TestEventsSSE_UpsertEvent(t *testing.T) {
 
 	// Read and discard initial snapshot
 	_ = readSSEEvent(t, scanner)
+	_ = readSSEEvent(t, scanner) // refresh status
+	_ = readSSEEvent(t, scanner) // update progress snapshot
 
 	// Publish an upsert
 	broadcaster.PublishStackUpsert(desiredstate.StackRecord{

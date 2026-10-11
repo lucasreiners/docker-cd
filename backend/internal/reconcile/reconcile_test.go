@@ -2,6 +2,7 @@ package reconcile_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"testing"
@@ -71,6 +72,48 @@ func (d *dynamicInspector) GetStackLabels(_ context.Context) (map[string]reconci
 }
 
 // --- Test Helpers ---
+
+func TestReconcileStack_PublishesTerminalProgress(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(fmt.Sprintf("failure=%t", fail), func(t *testing.T) {
+			store := desiredstate.NewStore()
+			store.Set(&desiredstate.Snapshot{Revision: "rev1", Stacks: []desiredstate.StackRecord{
+				{Path: "apps/web", ComposeFile: "compose.yaml", ComposeHash: "h1", Content: []byte("services:\n  web:\n    image: nginx\n")},
+			}})
+			compose := &stubComposeRunner{}
+			if fail {
+				compose.upErr = fmt.Errorf("deployment failed")
+			}
+			b := desiredstate.NewBroadcaster()
+			sub := b.Subscribe()
+			defer b.Unsubscribe(sub)
+			r := reconcile.NewReconciler(store, reconcile.ReconciliationPolicy{}, compose, nil, nil, "", nil,
+				newTestStateManager(store, compose), slog.Default(), nil, b)
+			r.ReconcileStack(context.Background(), "apps/web")
+			want := []string{"stack_sync_started", "stack_deploying", "stack_success"}
+			if fail {
+				want[2] = "stack_error"
+			}
+			for _, expected := range want {
+				select {
+				case e := <-sub.Events:
+					var payload struct {
+						Type   string
+						Source string
+					}
+					if err := json.Unmarshal([]byte(e.Data), &payload); err != nil {
+						t.Fatal(err)
+					}
+					if payload.Type != expected || payload.Source != "reconcile" {
+						t.Fatalf("unexpected progress: %s", e.Data)
+					}
+				case <-time.After(time.Second):
+					t.Fatalf("missing %s event", expected)
+				}
+			}
+		})
+	}
+}
 
 func newTestDriftDetector(deployDir string) *reconcile.DriftDetector {
 	return reconcile.NewDriftDetector(deployDir, slog.Default())

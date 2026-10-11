@@ -3,6 +3,7 @@ package desiredstate
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"sync"
 	"sync/atomic"
 )
@@ -17,6 +18,7 @@ const (
 	EventRefreshStatus   EventType = "refresh.status"
 	EventUpdateStarted   EventType = "update.started"
 	EventUpdateProgress  EventType = "update.progress"
+	EventUpdateSnapshot  EventType = "update.snapshot"
 	EventUpdateCompleted EventType = "update.completed"
 )
 
@@ -29,17 +31,14 @@ type SSEEvent struct {
 
 // Subscriber receives events via a channel.
 type Subscriber struct {
-	Events chan SSEEvent
-	done   chan struct{}
+	Events    chan SSEEvent
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 // Close signals the subscriber to stop.
 func (s *Subscriber) Close() {
-	select {
-	case <-s.done:
-	default:
-		close(s.done)
-	}
+	s.closeOnce.Do(func() { close(s.done) })
 }
 
 // Done returns a channel that is closed when the subscriber is closed.
@@ -52,13 +51,62 @@ type Broadcaster struct {
 	mu          sync.RWMutex
 	subscribers map[*Subscriber]struct{}
 	eventID     atomic.Int64
+	progress    map[string]json.RawMessage
+	pulls       map[string]map[string]json.RawMessage
 }
 
 // NewBroadcaster creates a new SSE event broadcaster.
 func NewBroadcaster() *Broadcaster {
 	return &Broadcaster{
 		subscribers: make(map[*Subscriber]struct{}),
+		progress:    make(map[string]json.RawMessage),
+		pulls:       make(map[string]map[string]json.RawMessage),
 	}
+}
+
+// SubscribeWithSnapshot captures bootstrap state while publication is paused.
+// Bootstrap events belong only to this connection, including on reconnect.
+func (b *Broadcaster) SubscribeWithSnapshot(store *Store) (*Subscriber, []SSEEvent) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	sub := &Subscriber{Events: make(chan SSEEvent, 64), done: make(chan struct{})}
+	b.subscribers[sub] = struct{}{}
+	snap := store.Get()
+	if snap == nil {
+		snap = &Snapshot{RefreshStatus: RefreshStatusQueued, UpdatesBlocked: true, BlockedReason: "refresh pending"}
+	}
+	stacks := snap.Stacks
+	if stacks == nil {
+		stacks = []StackRecord{}
+	}
+	snap.Stacks = nil
+	progress := make([]json.RawMessage, 0, len(b.progress))
+	sources := make([]string, 0, len(b.progress))
+	for source := range b.progress {
+		sources = append(sources, source)
+	}
+	sort.Strings(sources)
+	for _, source := range sources {
+		progress = append(progress, b.progress[source])
+		keys := make([]string, 0, len(b.pulls[source]))
+		for key := range b.pulls[source] {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			progress = append(progress, b.pulls[source][key])
+		}
+	}
+	return sub, []SSEEvent{
+		b.newEvent(EventStackSnapshot, map[string]interface{}{"records": stacks}),
+		b.newEvent(EventRefreshStatus, snap),
+		b.newEvent(EventUpdateSnapshot, map[string]interface{}{"progress": progress}),
+	}
+}
+
+func (b *Broadcaster) newEvent(eventType EventType, payload interface{}) SSEEvent {
+	data, _ := json.Marshal(payload)
+	return SSEEvent{ID: fmt.Sprintf("%d", b.eventID.Add(1)), Type: eventType, Data: string(data)}
 }
 
 // Subscribe adds a new subscriber and returns it.
@@ -83,13 +131,37 @@ func (b *Broadcaster) Unsubscribe(sub *Subscriber) {
 }
 
 // Publish sends an event to all subscribers. Non-blocking: if a subscriber
-// buffer is full the event is dropped for that subscriber.
+// buffer is full the connection is closed so it reconnects with fresh state.
 func (b *Broadcaster) Publish(eventType EventType, payload interface{}) {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return
 	}
 
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if eventType == EventUpdateProgress {
+		var progress struct {
+			Source  string `json:"source"`
+			Type    string `json:"type"`
+			Image   string `json:"image"`
+			LayerID string `json:"layerId"`
+		}
+		if json.Unmarshal(data, &progress) == nil {
+			if progress.Type == "image_pull_progress" {
+				if b.pulls[progress.Source] == nil {
+					b.pulls[progress.Source] = make(map[string]json.RawMessage)
+				}
+				b.pulls[progress.Source][progress.Image+"\x00"+progress.LayerID] = json.RawMessage(data)
+				if b.progress[progress.Source] == nil {
+					b.progress[progress.Source] = json.RawMessage(data)
+				}
+			} else {
+				b.progress[progress.Source] = json.RawMessage(data)
+				delete(b.pulls, progress.Source)
+			}
+		}
+	}
 	id := b.eventID.Add(1)
 	event := SSEEvent{
 		ID:   fmt.Sprintf("%d", id),
@@ -97,14 +169,12 @@ func (b *Broadcaster) Publish(eventType EventType, payload interface{}) {
 		Data: string(data),
 	}
 
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
 	for sub := range b.subscribers {
 		select {
 		case sub.Events <- event:
 		default:
-			// subscriber buffer full, drop event
+			sub.Close()
+			delete(b.subscribers, sub)
 		}
 	}
 }

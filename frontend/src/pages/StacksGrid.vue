@@ -117,11 +117,11 @@
                   {{ store.pullProgress.current }}/{{ store.pullProgress.total }}
                 </n-tag>
               </div>
-              <div
+              <template
                 v-for="img in store.pullProgress.images"
                 :key="img.image"
-                class="pull-image-row"
               >
+              <div class="pull-image-row" :data-image="img.image" :data-done="img.done">
                 <span class="pull-image-done">
                   <svg
                     v-if="img.done"
@@ -158,6 +158,15 @@
                   {{ img.progress }}
                 </n-text>
               </div>
+              <div v-for="layer in img.layers" :key="layer.id" class="pull-layer" :data-layer-id="layer.id" :data-bytes="layer.bytesCurrent">
+                <div class="pull-layer-label">
+                  <n-text code>{{ layer.id }}</n-text>
+                  <n-text :depth="3">{{ layer.status }}</n-text>
+                  <n-text :depth="3">{{ layer.bytesTotal > 0 ? `${formatBytes(layer.bytesCurrent)} / ${formatBytes(layer.bytesTotal)}` : layer.progress }}</n-text>
+                </div>
+                <n-progress v-if="layer.bytesTotal > 0" type="line" :percentage="Math.min(100, Math.round(layer.bytesCurrent / layer.bytesTotal * 100))" :show-indicator="false" />
+              </div>
+              </template>
             </div>
           </template>
         </div>
@@ -308,6 +317,10 @@ function getProgressType(type: string): 'success' | 'error' | 'warning' | 'info'
 
 function truncate(s: string, max: number): string {
   return s.length > max ? `${s.substring(0, max)}...` : s
+}
+
+function formatBytes(bytes: number): string {
+  return `${(bytes / 1024 / 1024).toFixed(1)} MiB`
 }
 
 function formatTime(iso: string): string {
@@ -505,6 +518,9 @@ function clearFilters() {
   align-items: center;
   flex-shrink: 0;
 }
+
+.pull-layer { padding: 4px 0 4px 22px; }
+.pull-layer-label { display: flex; flex-wrap: wrap; gap: 12px; font-size: 11px; }
 
 @keyframes spin {
   from { transform: rotate(0deg); }

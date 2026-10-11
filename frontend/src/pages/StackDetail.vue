@@ -159,20 +159,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import StatusBadge from '../components/StatusBadge.vue'
-import type { ContainerInfo } from '../services/api'
-import { fetchContainers } from '../services/api'
+import { useStackContainers } from '../composables/useStackContainers'
 import { useStacksStore } from '../store/stacks'
 import { buildPortURL, type PortMapping, parsePortString } from '../utils/portUtils'
 
 const route = useRoute()
 const store = useStacksStore()
-
-const containers = ref<ContainerInfo[]>([])
-const containersLoading = ref(false)
-const containersError = ref<string | null>(null)
 
 const stackPath = computed(() => {
   const p = route.params.path
@@ -180,6 +175,7 @@ const stackPath = computed(() => {
 })
 
 const stack = computed(() => store.getStack(stackPath.value))
+const { containers, containersLoading, containersError } = useStackContainers(() => stack.value)
 
 const containerPillType = computed<'success' | 'warning' | 'error'>(() => {
   if (!stack.value) return 'error'
@@ -187,18 +183,6 @@ const containerPillType = computed<'success' | 'warning' | 'error'>(() => {
   if (stack.value.containersRunning === 0) return 'error'
   return 'warning'
 })
-
-async function loadContainers() {
-  containersLoading.value = true
-  containersError.value = null
-  try {
-    containers.value = await fetchContainers(stackPath.value)
-  } catch (e) {
-    containersError.value = e instanceof Error ? e.message : 'Failed to load containers'
-  } finally {
-    containersLoading.value = false
-  }
-}
 
 function containerStateType(state: string): 'success' | 'warning' | 'error' | 'info' | 'default' {
   switch (state) {
@@ -260,15 +244,6 @@ function openPort(port: number | null, event: MouseEvent): void {
     window.open(url, '_blank', 'noopener,noreferrer')
   }
 }
-
-onMounted(() => {
-  loadContainers()
-})
-
-// Reload containers when stack path changes
-watch(stackPath, () => {
-  loadContainers()
-})
 </script>
 
 <style scoped>

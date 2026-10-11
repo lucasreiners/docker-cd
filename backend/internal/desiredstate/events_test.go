@@ -1,6 +1,7 @@
 package desiredstate_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -119,7 +120,7 @@ func TestBroadcaster_EventIDIncremental(t *testing.T) {
 	}
 }
 
-func TestBroadcaster_DropsEventsOnFullBuffer(t *testing.T) {
+func TestBroadcaster_DisconnectsOnFullBuffer(t *testing.T) {
 	b := desiredstate.NewBroadcaster()
 	sub := b.Subscribe()
 	for i := 0; i < 64; i++ {
@@ -127,6 +128,14 @@ func TestBroadcaster_DropsEventsOnFullBuffer(t *testing.T) {
 	}
 	for i := 64; i < 80; i++ {
 		b.Publish(desiredstate.EventUpdateProgress, map[string]int{"seq": i})
+	}
+	select {
+	case <-sub.Done():
+	default:
+		t.Fatal("slow subscribers must reconnect instead of silently losing final state")
+	}
+	if b.SubscriberCount() != 0 {
+		t.Fatal("overflowed subscriber was not removed")
 	}
 	count := 0
 	for {
@@ -225,4 +234,32 @@ func TestBroadcaster_NoSubscribers(t *testing.T) {
 	b.Publish(desiredstate.EventStackSnapshot, map[string]string{"test": "data"})
 	b.PublishStackSnapshot([]desiredstate.StackRecord{})
 	b.PublishStackUpsert(desiredstate.StackRecord{Path: "test"})
+}
+
+func TestBroadcaster_BootstrapIsPrivateAndRestoresProgress(t *testing.T) {
+	b := desiredstate.NewBroadcaster()
+	store := desiredstate.NewStore()
+	store.Set(&desiredstate.Snapshot{Revision: "new", RefreshStatus: desiredstate.RefreshStatusRefreshing})
+	b.PublishUpdateProgress(map[string]string{"type": "started", "cycle_id": "cycle-1"})
+	other := b.Subscribe()
+	defer b.Unsubscribe(other)
+	sub, initial := b.SubscribeWithSnapshot(store)
+	defer b.Unsubscribe(sub)
+	if len(initial) != 3 || initial[1].Type != desiredstate.EventRefreshStatus || initial[2].Type != desiredstate.EventUpdateSnapshot {
+		t.Fatalf("incomplete bootstrap: %+v", initial)
+	}
+	if !strings.Contains(initial[1].Data, `"refreshStatus":"refreshing"`) || !strings.Contains(initial[2].Data, "cycle-1") {
+		t.Fatalf("bootstrap did not restore current state: %+v", initial)
+	}
+	select {
+	case event := <-other.Events:
+		t.Fatalf("new connection broadcast bootstrap to existing client: %+v", event)
+	default:
+	}
+	b.PublishUpdateProgress(map[string]string{"type": "completed", "cycle_id": "cycle-1"})
+	reconnected, latest := b.SubscribeWithSnapshot(store)
+	defer b.Unsubscribe(reconnected)
+	if !strings.Contains(latest[2].Data, "completed") {
+		t.Fatalf("reconnect replayed stale active progress: %+v", latest)
+	}
 }

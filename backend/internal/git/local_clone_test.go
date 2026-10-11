@@ -69,6 +69,34 @@ func TestLocalClone_RecloneOnMissingRepo(t *testing.T) {
 	}
 }
 
+func TestLocalClone_RecursiveDiscoveryAndDeployScope(t *testing.T) {
+	remote := t.TempDir()
+	content := "services:\n  app:\n    image: busybox:1.37.0\n"
+	branch, _ := initTestRepo(t, remote, "deploy/apps/web", "compose.yaml", content)
+	addCommit(t, remote, "deploy/apps/web", "compose.yml", "ignored duplicate")
+	addCommit(t, remote, "deploy/infra/cache", "docker-compose.yml", content)
+	addCommit(t, remote, "deploy/deep/nested/worker", "compose.yml", content)
+	addCommit(t, remote, "outside", "docker-compose.yaml", content)
+	clone := NewLocalClone(filepath.Join(t.TempDir(), "clone"), remote, "", branch)
+	entries, _, _, err := clone.ReadComposeFiles(context.Background(), "/deploy/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"apps/web": "compose.yaml", "infra/cache": "docker-compose.yml", "deep/nested/worker": "compose.yml"}
+	if len(entries) != len(want) {
+		t.Fatalf("discovered wrong stacks: %+v", entries)
+	}
+	for _, entry := range entries {
+		if want[entry.StackPath] != entry.ComposeFile || string(entry.Content) != content {
+			t.Fatalf("unexpected stack: %+v", entry)
+		}
+	}
+	entries, _, _, err = clone.ReadComposeFiles(context.Background(), "/")
+	if err != nil || len(entries) != 4 {
+		t.Fatalf("root discovery: %d entries, %v", len(entries), err)
+	}
+}
+
 func TestLocalClone_RecloneOnCorruptRepo(t *testing.T) {
 	remoteDir := t.TempDir()
 	revision, _ := initTestRepo(t, remoteDir, "stack-a", "docker-compose.yml", "services:\n  web:\n    image: nginx:alpine\n")

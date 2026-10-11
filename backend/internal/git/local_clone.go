@@ -4,11 +4,14 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path"
 	"strings"
 	"sync"
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/filemode"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 )
 
@@ -204,36 +207,40 @@ func readComposeEntries(repo *gogit.Repository, hash plumbing.Hash, deployDir st
 	}
 
 	tree := rootTree
-	if deployDir != "" {
-		deployDir = strings.Trim(deployDir, "/")
+	if deployDir = strings.Trim(deployDir, "/"); deployDir != "" {
 		tree, err = rootTree.Tree(deployDir)
 		if err != nil {
 			return nil, fmt.Errorf("deploy dir %q not found: %w", deployDir, err)
 		}
 	}
 
+	return scanComposeEntries(tree, "")
+}
+
+// Keep stack identities relative to the deploy directory, at every depth.
+func scanComposeEntries(tree *object.Tree, prefix string) ([]ComposeEntry, error) {
 	var entries []ComposeEntry
 	for _, entry := range tree.Entries {
-		if entry.Mode.IsFile() {
+		if entry.Mode != filemode.Dir {
 			continue
 		}
-
 		subtree, err := tree.Tree(entry.Name)
 		if err != nil {
-			continue
+			return nil, err
 		}
-
-		composeFile, content, err := findComposeFile(subtree)
-		if err != nil || composeFile == "" {
-			continue
+		stackPath := path.Join(prefix, entry.Name)
+		file, content, err := findComposeFile(subtree)
+		if err != nil {
+			return nil, err
 		}
-
-		entries = append(entries, ComposeEntry{
-			StackPath:   entry.Name,
-			ComposeFile: composeFile,
-			Content:     content,
-		})
+		if file != "" {
+			entries = append(entries, ComposeEntry{StackPath: stackPath, ComposeFile: file, Content: content})
+		}
+		nested, err := scanComposeEntries(subtree, stackPath)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, nested...)
 	}
-
 	return entries, nil
 }

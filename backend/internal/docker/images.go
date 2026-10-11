@@ -13,11 +13,15 @@ import (
 
 // PullProgress represents progress information for an image pull operation.
 type PullProgress struct {
-	Image    string `json:"image"`
-	Status   string `json:"status"`
-	Progress string `json:"progress"`
-	Current  int    `json:"current"`
-	Total    int    `json:"total"`
+	Image        string `json:"image"`
+	Status       string `json:"status"`
+	Progress     string `json:"progress"`
+	Current      int    `json:"current"`
+	Total        int    `json:"total"`
+	LayerID      string `json:"layerId,omitempty"`
+	BytesCurrent int64  `json:"bytesCurrent,omitempty"`
+	BytesTotal   int64  `json:"bytesTotal,omitempty"`
+	Done         bool   `json:"done"` // Entire image completed, not just one layer.
 }
 
 // PullProgressFn is a callback invoked during image pulls with progress updates.
@@ -38,14 +42,18 @@ type ImageOperations interface {
 
 // pullStreamEvent represents a single JSON event from the Docker image pull stream.
 type pullStreamEvent struct {
-	Status   string `json:"status"`
-	Progress string `json:"progress"`
-	ID       string `json:"id"`
-	Error    string `json:"error"`
+	Status         string `json:"status"`
+	Progress       string `json:"progress"`
+	ID             string `json:"id"`
+	Error          string `json:"error"`
+	ProgressDetail struct {
+		Current int64 `json:"current"`
+		Total   int64 `json:"total"`
+	} `json:"progressDetail"`
 }
 
 // PullImages pulls the given images individually via the Docker SDK.
-// Progress is reported through onProgress (throttled to ~500ms per image). Nil callback is safe.
+// Progress is throttled per layer; phase changes and completion are never dropped.
 func (c *Client) PullImages(ctx context.Context, images []string, onProgress PullProgressFn) error {
 	total := len(images)
 	for i, img := range images {
@@ -64,7 +72,8 @@ func (c *Client) pullImage(ctx context.Context, img string, current, total int, 
 	defer reader.Close()
 
 	decoder := json.NewDecoder(reader)
-	var lastNotify time.Time
+	lastNotify := make(map[string]time.Time)
+	lastStatus := make(map[string]string)
 
 	for {
 		var event pullStreamEvent
@@ -77,14 +86,18 @@ func (c *Client) pullImage(ctx context.Context, img string, current, total int, 
 		if event.Error != "" {
 			return fmt.Errorf("%s", event.Error)
 		}
-		if onProgress != nil && time.Since(lastNotify) >= 500*time.Millisecond {
-			lastNotify = time.Now()
+		if onProgress != nil && (event.Status != lastStatus[event.ID] || time.Since(lastNotify[event.ID]) >= 500*time.Millisecond) {
+			lastNotify[event.ID] = time.Now()
+			lastStatus[event.ID] = event.Status
 			onProgress(PullProgress{
-				Image:    img,
-				Status:   event.Status,
-				Progress: event.Progress,
-				Current:  current,
-				Total:    total,
+				Image:        img,
+				Status:       event.Status,
+				Progress:     event.Progress,
+				Current:      current,
+				Total:        total,
+				LayerID:      event.ID,
+				BytesCurrent: event.ProgressDetail.Current,
+				BytesTotal:   event.ProgressDetail.Total,
 			})
 		}
 	}
@@ -96,6 +109,7 @@ func (c *Client) pullImage(ctx context.Context, img string, current, total int, 
 			Status:  "Pull complete",
 			Current: current,
 			Total:   total,
+			Done:    true,
 		})
 	}
 	return nil

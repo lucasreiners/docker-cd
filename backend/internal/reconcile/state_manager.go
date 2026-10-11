@@ -48,9 +48,7 @@ func (sm *StateManager) UpdateStatus(path string, status desiredstate.StackSyncS
 			snap.Stacks[i].Status = status
 			snap.Stacks[i].LastSyncAt = now
 			snap.Stacks[i].LastSyncStatus = string(status)
-			if syncError != "" {
-				snap.Stacks[i].LastSyncError = syncError
-			}
+			snap.Stacks[i].LastSyncError = syncError
 			updated = &snap.Stacks[i]
 			break
 		}
