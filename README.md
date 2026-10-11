@@ -193,12 +193,12 @@ python3 demo/manage.py start
 Open http://localhost:18881 for Docker-CD and http://localhost:13000/demo/homelab
 for Git. Demo login, scenarios, and stop/reset commands are in [demo/README.md](demo/README.md).
 
-To watch the redesign in a **headed Chromium browser**, run from `tests/e2e/`
+To explore the frontend in a **headed Chromium browser**, run from `tests/e2e/`
 after installing dependencies in both `frontend/` and `tests/e2e/`:
 
 ```bash
 bunx playwright install chromium
-bun run test:redesign:headed
+bun run test:frontend:headed
 ```
 
 This suite starts Vite on `127.0.0.1:18083` and a test-only API/SSE fixture on
@@ -211,9 +211,9 @@ mobile layouts, source diffs, logs, webhook diagnostics, and 250-stack paginatio
 Screenshots are attached to its HTML report.
 
 ```bash
-bun run test:redesign          # headless verification
-bun run test:redesign:explore  # interactive Playwright UI with replayable steps
-bunx playwright show-report playwright-report/redesign
+bun run test:frontend          # headless verification
+bun run test:frontend:explore  # interactive Playwright UI with replayable steps
+bunx playwright show-report playwright-report/frontend
 ```
 
 The existing `bun run test` suite still verifies the full GitOps lifecycle

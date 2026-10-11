@@ -1,5 +1,5 @@
 // Isolated browser-test backend. Never imported by the production application.
-import { fixtureData } from './redesign-data'
+import { fixtureData } from './frontend-data'
 
 let state = fixtureData()
 let updateStatus = 202

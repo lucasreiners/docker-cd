@@ -1,8 +1,8 @@
-# Admin console redesign study
+# Admin console architecture study
 
 Date: 2026-10-11
 
-Status: Proposal for the next redesign; this document does not change runtime behavior.
+Status: Architecture study; implementation scope is documented in spec.md and plan.md.
 
 Constraint: Vue.js remains the frontend framework.
 
@@ -16,9 +16,9 @@ The product's organizing concept should be:
 
 > Know what is running, understand why it changed, and resolve what needs attention.
 
-The first redesign improved the presentation of two screens. This proposal changes
-the information architecture and gives the existing delivery engine a fuller user
-interface. Its center of gravity is stacks and their operations.
+The frontend is organized around stacks and their operations, with dedicated
+workspaces for delivery, investigation and configuration. This study explains
+the information architecture and the capabilities it supports.
 
 The backend currently manages one configured repository and one Docker endpoint.
 The console should show the instance identity prominently. Multiple hosts or

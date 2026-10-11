@@ -2,14 +2,14 @@ import { defineConfig } from '@playwright/test'
 
 export default defineConfig({
   testDir: './specs',
-  testMatch: 'redesign.spec.ts',
+  testMatch: 'frontend.spec.ts',
   fullyParallel: false,
   workers: 1,
   retries: 0,
   timeout: 90_000,
   expect: { timeout: 10_000 },
-  outputDir: 'test-results/redesign',
-  reporter: [['list'], ['html', { outputFolder: 'playwright-report/redesign', open: 'never' }]],
+  outputDir: 'test-results/frontend',
+  reporter: [['list'], ['html', { outputFolder: 'playwright-report/frontend', open: 'never' }]],
   use: {
     baseURL: 'http://127.0.0.1:18083',
     browserName: 'chromium',
@@ -21,7 +21,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: 'bun fixtures/redesign-server.ts',
+      command: 'bun fixtures/frontend-server.ts',
       url: 'http://127.0.0.1:18082/test/ready',
       reuseExistingServer: false,
     },
