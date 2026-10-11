@@ -34,7 +34,7 @@ import (
 )
 
 const Secret = "integration-webhook-secret-not-a-real-credential"
-const Image = "busybox:1.37.0"
+const Image = "busybox:1.38.0"
 
 func Compose(name string) string {
 	return fmt.Sprintf("services:\n  worker:\n    image: %s\n    container_name: %s\n    command: [sleep, '3600']\n    stop_grace_period: 1s\n    volumes: [data:/data]\nvolumes:\n  data: {}\n", Image, name)

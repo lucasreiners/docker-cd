@@ -5,7 +5,7 @@ const api = 'http://127.0.0.1:18080'
 const secret = 'integration-webhook-secret-not-a-real-credential'
 const compose = (name: string) => `services:
   worker:
-    image: busybox:1.37.0
+    image: busybox:1.38.0
     container_name: ${name}
     command: [sleep, '3600']
     stop_grace_period: 1s
@@ -102,7 +102,7 @@ test('GitOps lifecycle updates cards and details live through real SSE and DinD'
     await control(request, 'pull/advance')
     await expect(a).toContainText('Pull complete')
     await expect(b).toContainText('Extracting')
-    await expect(page.locator('[data-image="busybox:1.37.0"]')).toHaveAttribute('data-done', 'false')
+    await expect(page.locator('[data-image="busybox:1.38.0"]')).toHaveAttribute('data-done', 'false')
     await expect(web.getByText('Syncing', { exact: true })).toBeVisible()
     await control(request, 'pull/advance')
     await expect.poll(async () => (await (await request.get(`${api}/test/gate`)).json()).waiting).toBe(true)
@@ -165,7 +165,7 @@ test('GitOps lifecycle updates cards and details live through real SSE and DinD'
   })
 
   await test.step('failure and recovery replace stale errors without reloading', async () => {
-    const broken = 'services:\n  worker:\n    image: busybox:1.37.0\n    definitely_invalid_property: true\n'
+    const broken = 'services:\n  worker:\n    image: busybox:1.38.0\n    definitely_invalid_property: true\n'
     let revision = await commit(request, { 'apps/web/compose.yaml': broken }, 'broken configuration')
     expect((await webhook(request, revision)).ok()).toBeTruthy()
     await expect(page.getByText('Failed', { exact: true }).first()).toBeVisible()

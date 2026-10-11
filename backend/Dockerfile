@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM golang:1.26.0-alpine AS builder
+FROM golang:1.27.2-alpine AS builder
 
 WORKDIR /build
 COPY go.mod go.sum ./
@@ -8,7 +8,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /docker-cd ./cmd/docker-cd
 
 # -------------------------------------------------------------------
-FROM docker:29.2.1-cli
+FROM docker:29.9.0-cli
 
 # Install docker compose plugin
 RUN apk add --no-cache docker-cli-compose
