@@ -8,7 +8,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /docker-cd ./cmd/docker-cd
 
 # -------------------------------------------------------------------
-FROM docker:29.9.0-cli
+FROM docker:29.9.1-cli
 
 # Install docker compose plugin
 RUN apk add --no-cache docker-cli-compose
