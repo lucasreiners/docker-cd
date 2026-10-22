@@ -40,7 +40,7 @@ services:
     restart: unless-stopped
 
   dind:
-    image: docker:29.9.0-dind
+    image: docker:29.9.2-dind
     privileged: true
     environment:
       DOCKER_TLS_CERTDIR: ""
