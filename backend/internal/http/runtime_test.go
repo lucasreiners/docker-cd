@@ -64,13 +64,26 @@ func runtimeFixture(paths ...string) (*RuntimeReader, *runtimeLister, *desiredst
 }
 func readRuntime(t *testing.T, r *RuntimeReader) map[string]RuntimeObservation {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	out, err := r.Read(ctx)
+	// Capacity fixtures assert resource limits, not a one-second latency target.
+	// Read already bounds the observation cycle and waiter; keep the caller tied
+	// to this test without a shorter deadline that flakes under -race on CI.
+	out, err := r.Read(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
 	return out
+}
+
+func TestRuntimeExpiredCallerDeadlineDoesNotStartObservation(t *testing.T) {
+	r, l, _ := runtimeFixture("web")
+	ctx, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+	defer cancel()
+	if _, err := r.Read(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expired caller deadline not preserved: %v", err)
+	}
+	if l.count() != 0 {
+		t.Fatal("expired caller started an observation")
+	}
 }
 
 func TestRuntimeSharedCoalescingAndAccurateCacheTimes(t *testing.T) {
