@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -265,7 +266,11 @@ func ContainersHandler(lister ContainerLister) gin.HandlerFunc {
 
 		containers, err := lister.GetContainers(c.Request.Context(), stackPath)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			status := http.StatusInternalServerError
+			if errors.Is(err, errUnknownRuntimeStack) {
+				status = http.StatusNotFound
+			}
+			c.JSON(status, gin.H{"error": "Container observation unavailable"})
 			return
 		}
 		if containers == nil {

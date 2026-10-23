@@ -288,8 +288,11 @@ func (s *SchedulerService) executeUpdateCycleManual(ctx context.Context, cycle *
 }
 
 // executeUpdateCycle performs the actual update operations (T013-T019)
+type workCycleKey struct{}
+
 func (s *SchedulerService) executeUpdateCycle(ctx context.Context, cycle *UpdateCycle) {
 	ctx = s.broadcaster.BeginOperation(ctx, "image_update", operations.Trigger(ctx), "", "")
+	ctx = context.WithValue(ctx, workCycleKey{}, cycle.CycleID)
 	defer func() {
 		status := "completed"
 		message := "Image update cycle completed"
@@ -345,6 +348,7 @@ func (s *SchedulerService) executeUpdateCycle(ctx context.Context, cycle *Update
 	}
 
 	totalStacks := len(snap.Stacks)
+	stackResults := desiredstate.WorkStackResults{Outcomes: []desiredstate.WorkStackOutcome{}}
 
 	// Process each stack sequentially (T014, FR-016)
 	for i, stack := range snap.Stacks {
@@ -354,6 +358,7 @@ func (s *SchedulerService) executeUpdateCycle(ctx context.Context, cycle *Update
 		}
 		// Skip if stack is in error state (FR-014, T019)
 		if stack.Status == desiredstate.StackSyncFailed {
+			desiredstate.AddWorkStackOutcome(&stackResults, desiredstate.WorkStackOutcome{Stack: stack.Path, Status: "skipped", Message: "Stack is in failed state"})
 			s.logger.Warn("skipping stack in failed state",
 				"stack", stack.Path,
 				"status", stack.Status)
@@ -396,6 +401,11 @@ func (s *SchedulerService) executeUpdateCycle(ctx context.Context, cycle *Update
 		}
 
 		result := s.updateStack(ctx, stack, onPullProgress)
+		outcome := desiredstate.WorkStackOutcome{Stack: stack.Path, Status: "completed", Message: "Stack update completed"}
+		if !result.Success {
+			outcome.Status, outcome.Message = "failed", "Stack update failed"
+		}
+		desiredstate.AddWorkStackOutcome(&stackResults, outcome)
 		message := "Updated " + stack.Path
 		if result.Error != nil {
 			message = stack.Path + ": " + result.Error.Error()
@@ -446,7 +456,17 @@ func (s *SchedulerService) executeUpdateCycle(ctx context.Context, cycle *Update
 		})
 	}
 
+	pruneID := s.broadcaster.BeginWork(ctx, desiredstate.WorkOptions{Source: "scheduler", CycleID: cycle.CycleID, Phase: "pruning"})
+	s.broadcaster.SetWorkStackResults(pruneID, stackResults)
 	imagesRemoved, spaceReclaimed, err := s.dockerClient.PruneImages(ctx)
+	pruneStatus := "completed"
+	if err != nil {
+		pruneStatus = "failed"
+	}
+	if ctx.Err() != nil {
+		pruneStatus = "cancelled"
+	}
+	s.broadcaster.EndWork(pruneID, pruneStatus, "Image prune "+pruneStatus, "")
 	if err != nil {
 		s.logger.Error("image prune failed", "error", err)
 		cycle.Errors = append(cycle.Errors, err)
@@ -536,7 +556,31 @@ func (s *SchedulerService) updateStack(ctx context.Context, stack desiredstate.S
 	}
 
 	// Pull images (T014)
-	err := s.dockerClient.PullImages(ctx, images, onPullProgress)
+	cycleID := ""
+	// Cycle context is presentation metadata only, never execution identity.
+	if value, ok := ctx.Value(workCycleKey{}).(string); ok {
+		cycleID = value
+	}
+	workID := s.broadcaster.BeginWork(ctx, desiredstate.WorkOptions{Source: "scheduler", Stack: stack.Path, Revision: stack.DesiredRevision, CycleID: cycleID, Phase: "pulling"})
+	callback := onPullProgress
+	if s.broadcaster != nil {
+		callback = func(p docker.PullProgress) {
+			s.broadcaster.WorkPullProgress(workID, desiredstate.WorkPullProgress{Image: p.Image, LayerID: p.LayerID, Status: p.Status, Current: p.Current, Total: p.Total, BytesCurrent: p.BytesCurrent, BytesTotal: p.BytesTotal, Done: p.Done})
+			if onPullProgress != nil {
+				onPullProgress(p)
+			}
+		}
+	}
+	err := s.dockerClient.PullImages(ctx, images, callback)
+	s.broadcaster.WorkPullFinished(workID, images, err)
+	pullStatus := "completed"
+	if err != nil {
+		pullStatus = "failed"
+	}
+	if ctx.Err() != nil {
+		pullStatus = "cancelled"
+	}
+	s.broadcaster.EndWork(workID, pullStatus, "Stack image pull "+pullStatus, "")
 	result.PullEndTime = time.Now()
 
 	if err != nil {

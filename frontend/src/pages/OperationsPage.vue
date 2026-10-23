@@ -6,25 +6,8 @@
         <h1>Operations</h1>
         <p>Follow active work and investigate previous results.</p>
       </div>
-      <button
-        class="button button-primary"
-        :disabled="
-          busy ||
-          store.isUpdating ||
-          !consoleStore.instance?.capabilities.imageUpdates ||
-          !!store.refreshStatus?.updatesBlocked
-        "
-        @click="update"
-      >
-        <RefreshCw :size="14" />{{
-          busy || store.isUpdating
-            ? "Updating images…"
-            : "Update container images"
-        }}
-      </button>
+      <WorkspaceActions :show-runtime="false" :show-git="false" />
     </div>
-    <div v-if="error" class="notice notice-error" role="alert">{{ error }}</div>
-    <p v-if="message" class="notice" role="status">{{ message }}</p>
     <div class="schedule-strip surface">
       <Clock3 :size="18" />
       <div>
@@ -46,7 +29,7 @@
         >Configuration <ArrowUpRight :size="12"
       /></router-link>
     </div>
-    <DeploymentProgress />
+    <ActiveWork />
     <div class="saved-views" role="group" aria-label="Operation views">
       <button
         v-for="item in filters"
@@ -58,13 +41,15 @@
       </button>
     </div>
     <div
-      v-if="consoleStore.operationsError"
+      v-if="historyError"
       class="notice notice-error"
       role="alert"
     >
-      {{ consoleStore.operationsError }}
+      {{ historyError }} <button class="text-link" @click="loadHistory(false)">Retry history</button>
     </div>
-    <OperationsTable :records="records" />
+    <p v-if="historyLoading" role="status">Loading history…</p>
+    <div class="section-heading"><h2>Operation history</h2><button class="button" :disabled="historyLoading" @click="loadHistory(false)">Refresh history</button></div>
+    <OperationsTable :records="displayRecords" />
     <div class="table-caption">
       <span
         >{{
@@ -75,9 +60,10 @@
         · Up to {{ consoleStore.instance?.history.retention || 1000 }} completed
         operations</span
       ><button
-        v-if="consoleStore.nextCursor"
+        v-if="nextCursor"
         class="button"
-        @click="consoleStore.loadOperations(true)"
+        :disabled="historyLoading"
+        @click="loadHistory(true)"
       >
         Load older operations
       </button>
@@ -85,23 +71,19 @@
   </div>
 </template>
 <script setup lang="ts">
-import { ArrowUpRight, Clock3, RefreshCw } from 'lucide-vue-next'
-import { computed, ref } from 'vue'
+import { ArrowUpRight, Clock3 } from 'lucide-vue-next'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import DeploymentProgress from '../components/DeploymentProgress.vue'
+import ActiveWork from '../components/ActiveWork.vue'
 import OperationsTable from '../components/OperationsTable.vue'
 import RelativeTime from '../components/RelativeTime.vue'
-import { triggerUpdate } from '../services/api'
+import WorkspaceActions from '../components/WorkspaceActions.vue'
+import { type Operation, requestJSON } from '../services/api'
 import { useConsoleStore } from '../store/console'
-import { useStacksStore } from '../store/stacks'
 
 const consoleStore = useConsoleStore(),
-  store = useStacksStore(),
   route = useRoute(),
   router = useRouter()
-const error = ref(''),
-  message = ref(''),
-  busy = ref(false)
 const filters = [
   { label: 'All operations', kind: '', status: '' },
   { label: 'Active', kind: '', status: 'running' },
@@ -116,28 +98,63 @@ const selected = computed(
       (f) => f.kind === (route.query.kind || '') && f.status === (route.query.status || ''),
     )?.label || 'All operations',
 )
-const records = computed(() =>
-  consoleStore.operations.filter(
-    (o) =>
-      (!route.query.kind || o.kind === route.query.kind) &&
-      (!route.query.status || o.status === route.query.status),
-  ),
+const records = ref<Operation[]>([]),
+  historyLoading = ref(false),
+  historyError = ref(''),
+  nextCursor = ref('')
+let generation = 0
+let requestSequence = 0
+const displayRecords = computed(() =>
+  records.value
+    .map((record) => {
+      const live = consoleStore.operationMap[record.id]
+      return live && (live.version || 0) >= (record.version || 0) ? live : record
+    })
+    .filter((record) => !route.query.status || record.status === route.query.status),
 )
+watch(
+  () => [route.query.kind, route.query.status, route.query.stack],
+  () => {
+    generation++
+    records.value = []
+    nextCursor.value = ''
+    void loadHistory(false)
+  },
+  { immediate: true },
+)
+async function loadHistory(append: boolean) {
+  const current = generation
+  const request = ++requestSequence
+  const isCurrent = () => current === generation && request === requestSequence
+  historyLoading.value = true
+  historyError.value = ''
+  const query = new URLSearchParams({ limit: '50' })
+  for (const key of ['kind', 'status', 'stack']) {
+    const value = route.query[key]
+    if (typeof value === 'string' && value) query.set(key, value)
+  }
+  if (append && nextCursor.value) query.set('cursor', nextCursor.value)
+  try {
+    const result = await requestJSON<{ records: Operation[]; nextCursor?: string }>(
+      `/api/operations?${query}`,
+    )
+    if (!isCurrent()) return
+    records.value = [
+      ...new Map(
+        [...(append ? records.value : []), ...result.records].map((op) => [op.id, op]),
+      ).values(),
+    ]
+    nextCursor.value = result.nextCursor || ''
+  } catch (error) {
+    if (isCurrent())
+      historyError.value = error instanceof Error ? error.message : 'History unavailable'
+  } finally {
+    if (isCurrent()) historyLoading.value = false
+  }
+}
 function choose(item: (typeof filters)[number]) {
   router.replace({
-    query: { kind: item.kind || undefined, status: item.status || undefined },
+    query: { ...route.query, kind: item.kind || undefined, status: item.status || undefined },
   })
-}
-async function update() {
-  busy.value = true
-  error.value = ''
-  try {
-    await triggerUpdate()
-    message.value = 'Image update requested. Progress and results appear below.'
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Image update failed'
-  } finally {
-    busy.value = false
-  }
 }
 </script>

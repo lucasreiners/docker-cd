@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { describe, expect, it, vi } from 'vitest'
 import ConnectionBanner from '../src/components/ConnectionBanner.vue'
 import { useStacksStore } from '../src/store/stacks'
+import { useWorkStore } from '../src/store/work'
 
 // Stub naive-ui components
 const naiveStubs = {
@@ -32,7 +33,7 @@ describe('ConnectionBanner', () => {
     expect(wrapper.get('[role="status"]').text()).toContain('Connecting')
   })
 
-  it('shows live state when connected', () => {
+  it('shows connected only after authoritative work recovery', async () => {
     setActivePinia(createPinia())
     const store = useStacksStore()
     store.connectionState = 'connected'
@@ -42,7 +43,10 @@ describe('ConnectionBanner', () => {
         stubs: naiveStubs,
       },
     })
-    expect(wrapper.get('[role="status"]').text()).toBe('Live')
+    expect(wrapper.get('[role="status"]').text()).toBe('Restoring work state…')
+    useWorkStore().restored = true
+    await flushPromises()
+    expect(wrapper.get('[role="status"]').text()).toBe('Connected')
   })
 
   it('shows reconnecting banner', async () => {

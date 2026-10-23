@@ -3,10 +3,14 @@
 import type { Operation, RefreshSnapshot, StackRecord } from './api'
 import { getEventsURL } from './api'
 import type { UpdateProgress } from './progress'
+import { isWorkSnapshot, isWorkUpsert, type WorkSnapshot, type WorkUpsert } from './work'
 
 export type ConnectionState = 'connected' | 'reconnecting' | 'disconnected'
 
 export interface SSECallbacks {
+  onWorkSnapshot?: (snapshot: WorkSnapshot) => void
+  onWorkUpsert?: (upsert: WorkUpsert) => void
+  onInvalidWork?: () => void
   onOperation?: (operation: Operation) => void
   onSnapshot?: (records: StackRecord[]) => void
   onUpsert?: (record: StackRecord) => void
@@ -24,6 +28,7 @@ export class SSEClient {
   private maxRetries = 50
   private retryTimer: ReturnType<typeof setTimeout> | null = null
   private _state: ConnectionState = 'disconnected'
+  private generation = 0
 
   constructor(callbacks: SSECallbacks) {
     this.callbacks = callbacks
@@ -45,13 +50,32 @@ export class SSEClient {
 
     const url = getEventsURL()
     this.es = new EventSource(url)
+    const es = this.es
+    const generation = this.generation
+    for (const name of ['work.snapshot', 'work.upsert'] as const) {
+      es.addEventListener(name, (event: MessageEvent) => {
+        if (generation !== this.generation || this.es !== es) return
+        try {
+          const value: unknown = JSON.parse(event.data)
+          if (name === 'work.snapshot' && isWorkSnapshot(value))
+            this.callbacks.onWorkSnapshot?.(value)
+          else if (name === 'work.upsert' && isWorkUpsert(value))
+            this.callbacks.onWorkUpsert?.(value)
+          else this.callbacks.onInvalidWork?.()
+        } catch {
+          this.callbacks.onInvalidWork?.()
+        }
+      })
+    }
 
     this.es.onopen = () => {
+      if (this.es !== es) return
       this.retryCount = 0
       this.setState('connected')
     }
 
     this.es.addEventListener('stack.snapshot', (e: MessageEvent) => {
+      if (this.es !== es) return
       try {
         const data = JSON.parse(e.data)
         this.callbacks.onSnapshot?.(data.records ?? [])
@@ -61,6 +85,7 @@ export class SSEClient {
     })
 
     this.es.addEventListener('stack.upsert', (e: MessageEvent) => {
+      if (this.es !== es) return
       try {
         const data = JSON.parse(e.data)
         this.callbacks.onUpsert?.(data.record)
@@ -70,6 +95,7 @@ export class SSEClient {
     })
 
     this.es.addEventListener('stack.delete', (e: MessageEvent) => {
+      if (this.es !== es) return
       try {
         const data = JSON.parse(e.data)
         this.callbacks.onDelete?.(data.path)
@@ -79,6 +105,7 @@ export class SSEClient {
     })
 
     this.es.addEventListener('refresh.status', (e: MessageEvent) => {
+      if (this.es !== es) return
       try {
         const data = JSON.parse(e.data)
         this.callbacks.onRefreshStatus?.(data)
@@ -88,6 +115,7 @@ export class SSEClient {
     })
 
     this.es.addEventListener('update.progress', (e: MessageEvent) => {
+      if (this.es !== es) return
       try {
         const data = JSON.parse(e.data)
         this.callbacks.onUpdateProgress?.(data)
@@ -97,6 +125,7 @@ export class SSEClient {
     })
 
     this.es.addEventListener('update.snapshot', (e: MessageEvent) => {
+      if (this.es !== es) return
       try {
         this.callbacks.onUpdateSnapshot?.(JSON.parse(e.data).progress ?? [])
       } catch {
@@ -105,6 +134,7 @@ export class SSEClient {
     })
 
     this.es.addEventListener('operation.upsert', (e: MessageEvent) => {
+      if (this.es !== es) return
       try {
         this.callbacks.onOperation?.(JSON.parse(e.data))
       } catch {
@@ -113,6 +143,7 @@ export class SSEClient {
     })
 
     this.es.onerror = () => {
+      if (this.es !== es) return
       this.es?.close()
       this.es = null
 
@@ -128,6 +159,7 @@ export class SSEClient {
   }
 
   close(): void {
+    this.generation++
     if (this.retryTimer) {
       clearTimeout(this.retryTimer)
       this.retryTimer = null

@@ -95,6 +95,44 @@ describe('SSEClient', () => {
   })
 
   describe('Connection Management', () => {
+    it('validates work payloads and ignores delayed events from a replaced connection', () => {
+      const onWorkSnapshot = vi.fn()
+      const onWorkUpsert = vi.fn()
+      const onInvalidWork = vi.fn()
+      const client = new SSEClient({ onWorkSnapshot, onWorkUpsert, onInvalidWork })
+      client.connect()
+      const old = (global as any).__mockEventSourceInstance as MockEventSource
+      const snapshot = {
+        schemaVersion: 2,
+        epoch: 'a',
+        sequence: 0,
+        operations: [],
+        runs: [],
+        detailsTruncated: false,
+      }
+      old.__triggerEvent('work.snapshot', snapshot)
+      expect(onWorkSnapshot).toHaveBeenCalledWith(snapshot)
+      old.__triggerEvent('work.snapshot', { ...snapshot, runs: null })
+      old.__triggerEvent('work.upsert', {
+        schemaVersion: 2,
+        epoch: 'a',
+        sequence: 1,
+        operations: [],
+      })
+      old.listeners.get('work.upsert')?.[0]({ data: '{' } as MessageEvent)
+      expect(onInvalidWork).toHaveBeenCalledTimes(3)
+      expect(onWorkUpsert).not.toHaveBeenCalled()
+      client.connect()
+      old.__triggerEvent('work.snapshot', snapshot)
+      old.__triggerEvent('work.upsert', {})
+      old.__triggerOpen()
+      old.__triggerError()
+      expect(client.state).toBe('disconnected')
+      expect(onWorkSnapshot).toHaveBeenCalledTimes(1)
+      expect(onInvalidWork).toHaveBeenCalledTimes(3)
+      client.close()
+    })
+
     it('should start in disconnected state', () => {
       const client = new SSEClient(callbacks)
       expect(client.state).toBe('disconnected')

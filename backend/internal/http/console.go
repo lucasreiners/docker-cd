@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lucasreiners/docker-cd/internal/config"
 	"github.com/lucasreiners/docker-cd/internal/desiredstate"
+	"github.com/lucasreiners/docker-cd/internal/docker"
 	"github.com/lucasreiners/docker-cd/internal/operations"
 	"github.com/lucasreiners/docker-cd/internal/reconcile"
 )
@@ -48,8 +49,13 @@ func registerConsole(r *gin.Engine, cfg config.Config, store *desiredstate.Store
 			expression, zone, next = effective.EffectiveSchedule()
 		}
 		persistent, storageError := false, ""
+		capabilities := gin.H{"inspect": canInspect, "logs": canLogs && canInspect, "apply": canApply && cfg.ReconcileEnabled, "imageUpdates": cfg.UpdaterEnabled, "history": b != nil, "configuration": store != nil}
 		if b != nil {
 			persistent, storageError = b.Operations().Health()
+			capabilities["liveWorkVersion"] = 2
+		}
+		if _, supported := api.(docker.IdentityInspector); supported && canInspect && store != nil {
+			capabilities["imageIdentity"] = gin.H{"version": 1, "source": "container_image_inspect"}
 		}
 		c.JSON(http.StatusOK, gin.H{
 			"name": cfg.ProjectName, "version": version,
@@ -60,7 +66,7 @@ func registerConsole(r *gin.Engine, cfg config.Config, store *desiredstate.Store
 			"dockerEndpoint":      publicURL(cfg.DockerSocket),
 			"policies":            gin.H{"reconcile": cfg.ReconcileEnabled, "remove": cfg.ReconcileRemoveEnabled, "drift": cfg.DriftPolicy},
 			"schedule":            gin.H{"enabled": cfg.UpdaterEnabled, "cron": expression, "timezone": zone, "nextRun": next},
-			"capabilities":        gin.H{"inspect": canInspect, "logs": canLogs && canInspect, "apply": canApply && cfg.ReconcileEnabled, "imageUpdates": cfg.UpdaterEnabled, "history": b != nil, "configuration": store != nil},
+			"capabilities":        capabilities,
 			"history":             gin.H{"persistent": persistent, "error": storageError, "retention": 1000},
 			"configurationSource": "environment",
 		})
@@ -80,26 +86,6 @@ func registerConsole(r *gin.Engine, cfg config.Config, store *desiredstate.Store
 				}
 			}
 			c.JSON(http.StatusNotFound, gin.H{"error": "Stack not found"})
-		})
-	}
-	if canInspect && store != nil {
-		r.GET("/api/runtime", func(c *gin.Context) {
-			out := make(map[string]interface{})
-			ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
-			defer cancel()
-			for _, stack := range store.GetStacks() {
-				containers, err := lister.GetContainers(ctx, stack.Path)
-				var message *string
-				if err != nil {
-					s := err.Error()
-					message = &s
-				}
-				if containers == nil {
-					containers = []desiredstate.ContainerInfo{}
-				}
-				out[stack.Path] = gin.H{"containers": containers, "error": message, "observedAt": time.Now().UTC()}
-			}
-			c.JSON(http.StatusOK, out)
 		})
 	}
 	if b == nil {
@@ -122,6 +108,9 @@ func registerConsole(r *gin.Engine, cfg config.Config, store *desiredstate.Store
 				continue
 			}
 			if stack := c.Query("stack"); stack != "" && record.Stack != stack {
+				continue
+			}
+			if parent := c.Query("parentId"); parent != "" && record.ParentID != parent {
 				continue
 			}
 			if kind := c.Query("kind"); kind != "" && record.Kind != kind {
@@ -204,6 +193,7 @@ func registerConsole(r *gin.Engine, cfg config.Config, store *desiredstate.Store
 		active[body.Stack] = true
 		actionMu.Unlock()
 		ctx := b.BeginOperation(operations.WithTrigger(context.Background(), body.Action), "action", body.Action, body.Stack, body.Revision)
+		b.OperationStep(ctx, "waiting", "Waiting for execution lock")
 		c.JSON(http.StatusAccepted, gin.H{"operationId": operations.ID(ctx)})
 		go func() {
 			defer func() { actionMu.Lock(); delete(active, body.Stack); actionMu.Unlock() }()

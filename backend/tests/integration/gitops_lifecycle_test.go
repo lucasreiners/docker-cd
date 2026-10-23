@@ -31,6 +31,8 @@ func TestGitOpsLifecycle(t *testing.T) {
 	defer h.Close()
 	server := httptest.NewServer(h.Router)
 	defer server.Close()
+	work := observeWork(t, ctx, server.URL)
+	defer work.Close()
 	streamCtx, stopStream := context.WithCancel(ctx)
 	defer stopStream()
 	req, _ := http.NewRequestWithContext(streamCtx, "GET", server.URL+"/api/events", nil)
@@ -132,6 +134,23 @@ func TestGitOpsLifecycle(t *testing.T) {
 		return false
 	})
 	eventually(t, "failed refresh cycle finishes", func() bool { return !h.Queue.IsRunning() })
+	var failedApply desiredstate.WorkRun
+	eventually(t, "Compose failure has explicit work terminal", func() bool {
+		for _, run := range work.runs() {
+			if run.Source == "reconcile" && run.Stack == "apps/web" && run.Status == "failed" {
+				failedApply = run
+				return true
+			}
+		}
+		return false
+	})
+	assertTerminalWork(t, work, failedApply.RunID, "failed")
+	for _, run := range work.runs() {
+		if run.RunID == failedApply.RunID && run.Status == "completed" {
+			t.Fatal("Compose failure also published success")
+		}
+	}
+	t.Logf("real invalid Compose failure explicitly reported over HTTP SSE: run=%s status=%s", failedApply.RunID, failedApply.Status)
 	revision, err = h.Commit(map[string]*string{"apps/web/compose.yaml": &changed}, "recover compose")
 	if err != nil {
 		t.Fatal(err)

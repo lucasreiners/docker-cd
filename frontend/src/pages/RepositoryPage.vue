@@ -6,27 +6,9 @@
         <h1>Repository</h1>
         <p>The source of truth for this deployment environment.</p>
       </div>
-      <button
-        class="button button-primary"
-        :disabled="busy || store.refreshStatus?.refreshStatus === 'refreshing'"
-        @click="refresh"
-      >
-        <RefreshCw :size="14" />{{
-          busy ? "Checking…" : "Check Git for changes"
-        }}
-      </button>
+      <WorkspaceActions :show-runtime="false" :show-update="false" />
     </div>
     <div v-if="error" class="notice notice-error" role="alert">{{ error }}</div>
-    <p v-if="message" class="notice" role="status">{{ message }}</p>
-    <div
-      v-if="
-        store.isUpdating || store.stacks.some((s) => s.status === 'syncing')
-      "
-      class="notice notice-warning"
-    >
-      A manual Git check requests cancellation of active deployment/image-update
-      work before refreshing.
-    </div>
     <div
       v-if="store.refreshStatus?.updatesBlocked"
       class="notice notice-error"
@@ -165,20 +147,19 @@
   </div>
 </template>
 <script setup lang="ts">
-import { ArrowUpRight, Folder, RefreshCw, Webhook } from 'lucide-vue-next'
+import { ArrowUpRight, Folder, Webhook } from 'lucide-vue-next'
 import { computed, onMounted, ref } from 'vue'
 import OperationsTable from '../components/OperationsTable.vue'
 import RelativeTime from '../components/RelativeTime.vue'
 import StatusBadge from '../components/StatusBadge.vue'
-import { type Operation, requestJSON, triggerRefresh } from '../services/api'
+import WorkspaceActions from '../components/WorkspaceActions.vue'
+import { type Operation, requestJSON } from '../services/api'
 import { useConsoleStore } from '../store/console'
 import { useStacksStore } from '../store/stacks'
 
 const consoleStore = useConsoleStore(),
   store = useStacksStore(),
-  busy = ref(false),
-  error = ref(''),
-  message = ref('')
+  error = ref('')
 const repoURL = computed(() =>
   /^https?:\/\//.test(consoleStore.instance?.repository.url || '')
     ? consoleStore.instance?.repository.url
@@ -199,16 +180,4 @@ async function loadDeliveries() {
   }
 }
 onMounted(loadDeliveries)
-async function refresh() {
-  busy.value = true
-  error.value = ''
-  try {
-    await triggerRefresh()
-    message.value = 'Repository check requested. Eligible changes deploy automatically.'
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Repository check failed'
-  } finally {
-    busy.value = false
-  }
-}
 </script>

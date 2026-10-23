@@ -174,6 +174,7 @@ func TestEventsSSE_UpsertEvent(t *testing.T) {
 	_ = readSSEEvent(t, scanner)
 	_ = readSSEEvent(t, scanner) // refresh status
 	_ = readSSEEvent(t, scanner) // update progress snapshot
+	_ = readSSEEvent(t, scanner) // additive v2 work snapshot
 
 	// Publish an upsert
 	broadcaster.PublishStackUpsert(desiredstate.StackRecord{
@@ -200,6 +201,66 @@ func TestEventsSSE_UpsertEvent(t *testing.T) {
 	}
 	if payload.Record.Status != desiredstate.StackSyncSynced {
 		t.Errorf("expected status synced, got %s", payload.Record.Status)
+	}
+}
+
+func TestEventsSSEWorkBarrierAndTerminalReconnect(t *testing.T) {
+	store := desiredstate.NewStore()
+	b := desiredstate.NewBroadcaster()
+	ctx := b.BeginOperation(context.Background(), "deployment", "manual", "nested/web", "revision")
+	id := b.BeginWork(ctx, desiredstate.WorkOptions{Source: "reconcile", Stack: "nested/web", Phase: "pulling"})
+	b.WorkPullProgress(id, desiredstate.WorkPullProgress{Image: "nginx", LayerID: "layer", Status: "Downloading", BytesCurrent: 5})
+	ts := httptest.NewServer(setupRouterWithBroadcaster(config.Config{}, store, b))
+	defer ts.Close()
+	requestCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	connect := func() (*http.Response, *bufio.Scanner, desiredstate.WorkSnapshot) {
+		req, err := http.NewRequestWithContext(requestCtx, "GET", ts.URL+"/api/events", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		scanner := bufio.NewScanner(response.Body)
+		for _, eventType := range []string{"stack.snapshot", "refresh.status", "update.snapshot"} {
+			if event := readSSEEvent(t, scanner); event.eventType != eventType {
+				t.Fatalf("legacy bootstrap changed: %s", event.eventType)
+			}
+		}
+		event := readSSEEvent(t, scanner)
+		if event.eventType != "work.snapshot" {
+			t.Fatal("missing work barrier")
+		}
+		var snapshot desiredstate.WorkSnapshot
+		if err := json.Unmarshal([]byte(event.data), &snapshot); err != nil {
+			t.Fatal(err)
+		}
+		return response, scanner, snapshot
+	}
+	response, scanner, snapshot := connect()
+	defer response.Body.Close()
+	if len(snapshot.Runs) != 1 || len(snapshot.Operations) != 1 {
+		t.Fatal("active work not bootstrapped")
+	}
+	b.EndWork(id, "failed", "Compose apply failed", "apply_failed")
+	event := readSSEEvent(t, scanner)
+	if event.eventType != "work.upsert" {
+		t.Fatalf("unexpected terminal event %s", event.eventType)
+	}
+	var terminal desiredstate.WorkUpsert
+	if err := json.Unmarshal([]byte(event.data), &terminal); err != nil {
+		t.Fatal(err)
+	}
+	if terminal.Sequence <= snapshot.Sequence || terminal.Epoch != snapshot.Epoch || terminal.Run == nil || terminal.Run.Status != "failed" {
+		t.Fatal("terminal did not follow snapshot barrier")
+	}
+	b.EndOperation(ctx, "failed", "Apply failed")
+	reconnected, _, latest := connect()
+	defer reconnected.Body.Close()
+	if len(latest.Runs) != 0 || len(latest.Operations) != 0 || latest.Sequence <= terminal.Sequence {
+		t.Fatal("reconnect resurrected terminal bytes or active membership")
 	}
 }
 

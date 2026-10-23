@@ -1,0 +1,372 @@
+{
+  "headers": [
+    {
+      "x": 263,
+      "width": 332.328125,
+      "height": 36
+    },
+    {
+      "x": 595.328125,
+      "width": 252.109375,
+      "height": 36
+    },
+    {
+      "x": 847.4375,
+      "width": 217.734375,
+      "height": 36
+    },
+    {
+      "x": 1065.171875,
+      "width": 183.359375,
+      "height": 36
+    },
+    {
+      "x": 1248.53125,
+      "width": 160.46875,
+      "height": 36
+    }
+  ],
+  "stacks": [
+    {
+      "x": 263,
+      "width": 1146,
+      "height": 48,
+      "cells": [
+        {
+          "x": 263,
+          "width": 332.328125,
+          "height": 48
+        },
+        {
+          "x": 595.328125,
+          "width": 252.109375,
+          "height": 48
+        },
+        {
+          "x": 847.4375,
+          "width": 217.734375,
+          "height": 48
+        },
+        {
+          "x": 1065.171875,
+          "width": 183.359375,
+          "height": 48
+        },
+        {
+          "x": 1248.53125,
+          "width": 160.46875,
+          "height": 48
+        }
+      ]
+    },
+    {
+      "x": 263,
+      "width": 1146,
+      "height": 48,
+      "cells": [
+        {
+          "x": 263,
+          "width": 332.328125,
+          "height": 48
+        },
+        {
+          "x": 595.328125,
+          "width": 252.109375,
+          "height": 48
+        },
+        {
+          "x": 847.4375,
+          "width": 217.734375,
+          "height": 48
+        },
+        {
+          "x": 1065.171875,
+          "width": 183.359375,
+          "height": 48
+        },
+        {
+          "x": 1248.53125,
+          "width": 160.46875,
+          "height": 48
+        }
+      ]
+    },
+    {
+      "x": 263,
+      "width": 1146,
+      "height": 48,
+      "cells": [
+        {
+          "x": 263,
+          "width": 332.328125,
+          "height": 48
+        },
+        {
+          "x": 595.328125,
+          "width": 252.109375,
+          "height": 48
+        },
+        {
+          "x": 847.4375,
+          "width": 217.734375,
+          "height": 48
+        },
+        {
+          "x": 1065.171875,
+          "width": 183.359375,
+          "height": 48
+        },
+        {
+          "x": 1248.53125,
+          "width": 160.46875,
+          "height": 48
+        }
+      ]
+    },
+    {
+      "x": 263,
+      "width": 1146,
+      "height": 48,
+      "cells": [
+        {
+          "x": 263,
+          "width": 332.328125,
+          "height": 48
+        },
+        {
+          "x": 595.328125,
+          "width": 252.109375,
+          "height": 48
+        },
+        {
+          "x": 847.4375,
+          "width": 217.734375,
+          "height": 48
+        },
+        {
+          "x": 1065.171875,
+          "width": 183.359375,
+          "height": 48
+        },
+        {
+          "x": 1248.53125,
+          "width": 160.46875,
+          "height": 48
+        }
+      ]
+    }
+  ],
+  "children": [
+    {
+      "x": 263,
+      "width": 1146,
+      "height": 44,
+      "cells": [
+        {
+          "x": 263,
+          "width": 332.328125,
+          "height": 44
+        },
+        {
+          "x": 595.328125,
+          "width": 252.109375,
+          "height": 44
+        },
+        {
+          "x": 847.4375,
+          "width": 217.734375,
+          "height": 44
+        },
+        {
+          "x": 1065.171875,
+          "width": 183.359375,
+          "height": 44
+        },
+        {
+          "x": 1248.53125,
+          "width": 160.46875,
+          "height": 44
+        }
+      ]
+    },
+    {
+      "x": 263,
+      "width": 1146,
+      "height": 44,
+      "cells": [
+        {
+          "x": 263,
+          "width": 332.328125,
+          "height": 44
+        },
+        {
+          "x": 595.328125,
+          "width": 252.109375,
+          "height": 44
+        },
+        {
+          "x": 847.4375,
+          "width": 217.734375,
+          "height": 44
+        },
+        {
+          "x": 1065.171875,
+          "width": 183.359375,
+          "height": 44
+        },
+        {
+          "x": 1248.53125,
+          "width": 160.46875,
+          "height": 44
+        }
+      ]
+    },
+    {
+      "x": 263,
+      "width": 1146,
+      "height": 44,
+      "cells": [
+        {
+          "x": 263,
+          "width": 332.328125,
+          "height": 44
+        },
+        {
+          "x": 595.328125,
+          "width": 252.109375,
+          "height": 44
+        },
+        {
+          "x": 847.4375,
+          "width": 217.734375,
+          "height": 44
+        },
+        {
+          "x": 1065.171875,
+          "width": 183.359375,
+          "height": 44
+        },
+        {
+          "x": 1248.53125,
+          "width": 160.46875,
+          "height": 44
+        }
+      ]
+    }
+  ],
+  "names": [
+    {
+      "family": "\"DM Sans Variable\", sans-serif",
+      "size": "13px",
+      "weight": "600"
+    },
+    {
+      "family": "\"DM Sans Variable\", sans-serif",
+      "size": "13px",
+      "weight": "500"
+    },
+    {
+      "family": "\"DM Sans Variable\", sans-serif",
+      "size": "13px",
+      "weight": "600"
+    },
+    {
+      "family": "\"DM Sans Variable\", sans-serif",
+      "size": "13px",
+      "weight": "500"
+    },
+    {
+      "family": "\"DM Sans Variable\", sans-serif",
+      "size": "13px",
+      "weight": "600"
+    },
+    {
+      "family": "\"DM Sans Variable\", sans-serif",
+      "size": "13px",
+      "weight": "500"
+    },
+    {
+      "family": "\"DM Sans Variable\", sans-serif",
+      "size": "13px",
+      "weight": "600"
+    }
+  ],
+  "technical": [
+    {
+      "family": "\"IBM Plex Mono\", monospace",
+      "size": "12px",
+      "weight": "400"
+    },
+    {
+      "family": "\"IBM Plex Mono\", monospace",
+      "size": "12px",
+      "weight": "400"
+    },
+    {
+      "family": "\"IBM Plex Mono\", monospace",
+      "size": "12px",
+      "weight": "400"
+    },
+    {
+      "family": "\"IBM Plex Mono\", monospace",
+      "size": "12px",
+      "weight": "400"
+    },
+    {
+      "family": "\"IBM Plex Mono\", monospace",
+      "size": "12px",
+      "weight": "400"
+    },
+    {
+      "family": "\"IBM Plex Mono\", monospace",
+      "size": "12px",
+      "weight": "400"
+    }
+  ],
+  "colors": [
+    {
+      "label": "Failed",
+      "color": "rgb(183, 55, 64)",
+      "icon": true,
+      "animation": "none"
+    },
+    {
+      "label": "Running · healthy",
+      "color": "rgb(38, 116, 73)",
+      "icon": true,
+      "animation": "none"
+    },
+    {
+      "label": "Approval required",
+      "color": "rgb(138, 92, 18)",
+      "icon": true,
+      "animation": "none"
+    },
+    {
+      "label": "Running · unhealthy",
+      "color": "rgb(183, 55, 64)",
+      "icon": true,
+      "animation": "none"
+    },
+    {
+      "label": "Applied",
+      "color": "rgb(38, 116, 73)",
+      "icon": true,
+      "animation": "none"
+    },
+    {
+      "label": "Exited · no health check",
+      "color": "rgb(82, 97, 116)",
+      "icon": true,
+      "animation": "none"
+    },
+    {
+      "label": "Applying",
+      "color": "rgb(54, 89, 184)",
+      "icon": true,
+      "animation": "none"
+    }
+  ],
+  "pageWidth": 1440,
+  "bodyHeight": 900
+}

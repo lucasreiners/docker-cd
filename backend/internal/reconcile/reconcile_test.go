@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/lucasreiners/docker-cd/internal/desiredstate"
+	"github.com/lucasreiners/docker-cd/internal/operations"
 	"github.com/lucasreiners/docker-cd/internal/reconcile"
 )
 
@@ -1110,5 +1112,90 @@ func TestReconcile_NilImagePuller_SkipsPull(t *testing.T) {
 	}
 	if len(compose.upCalls) != 1 {
 		t.Errorf("expected 1 compose up call, got %d", len(compose.upCalls))
+	}
+}
+
+type workInspectingCompose struct {
+	stubComposeRunner
+	inspect func()
+}
+
+func (c *workInspectingCompose) ComposeUp(ctx context.Context, project, file, override, dir string) error {
+	c.inspect()
+	return c.stubComposeRunner.ComposeUp(ctx, project, file, override, dir)
+}
+
+func TestDeploymentWorkOwnsPullAndApplyWithoutInventingImplicitBytes(t *testing.T) {
+	for _, test := range []struct {
+		name                  string
+		puller                bool
+		pullError, errorApply bool
+	}{
+		{name: "nil puller"}, {name: "explicit pull", puller: true}, {name: "pull failure", puller: true, pullError: true}, {name: "apply failure", puller: true, errorApply: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := desiredstate.NewStore()
+			store.Set(&desiredstate.Snapshot{Revision: "rev", RefreshStatus: desiredstate.RefreshStatusCompleted, Stacks: []desiredstate.StackRecord{{Path: "nested/web", ComposeFile: "compose.yaml", ComposeHash: "hash", Content: []byte("services:\n  web:\n    image: nginx\n")}}})
+			b := desiredstate.NewBroadcaster()
+			parent := b.BeginOperation(context.Background(), "refresh", "manual", "", "")
+			b.EndOperation(parent, "completed", "checked")
+			sub := b.Subscribe()
+			defer b.Unsubscribe(sub)
+			compose := &workInspectingCompose{}
+			compose.inspect = func() {
+				s, events := b.SubscribeWithSnapshot(store)
+				defer b.Unsubscribe(s)
+				var snap desiredstate.WorkSnapshot
+				if err := json.Unmarshal([]byte(events[3].Data), &snap); err != nil {
+					t.Fatal(err)
+				}
+				if len(snap.Runs) != 1 || snap.Runs[0].Phase != "applying" || snap.Runs[0].Status != "running" || snap.Runs[0].RootOperationID != operations.ID(parent) || len(snap.Operations) != 2 {
+					t.Fatalf("deployment ended at pull or lost ancestry: %+v", snap)
+				}
+				if !test.puller && snap.Runs[0].ImageCount != 0 {
+					t.Fatal("implicit Compose pull got invented image detail")
+				}
+				if test.puller && (snap.Runs[0].ImageCount != 1 || !snap.Runs[0].Images[0].Done) {
+					t.Fatal("explicit image return not recorded")
+				}
+			}
+			if test.errorApply {
+				compose.upErr = fmt.Errorf("password=secret")
+			}
+			var puller reconcile.ImagePuller
+			if test.puller {
+				p := &stubImagePuller{}
+				if test.pullError {
+					p.pullErr = fmt.Errorf("password=secret")
+				}
+				puller = p
+			}
+			r := reconcile.NewReconciler(store, reconcile.ReconciliationPolicy{}, compose, nil, nil, "", nil, newTestStateManager(store, compose), slog.Default(), puller, b)
+			result := r.ReconcileStack(parent, "nested/web")
+			if (result.Result == "success") == (test.pullError || test.errorApply) {
+				t.Fatal("execution result changed")
+			}
+			terminal := false
+			for len(sub.Events) > 0 {
+				event := <-sub.Events
+				if event.Type != desiredstate.EventWorkUpsert {
+					continue
+				}
+				var up desiredstate.WorkUpsert
+				_ = json.Unmarshal([]byte(event.Data), &up)
+				if up.Run != nil && up.Run.Phase == "finished" {
+					terminal = true
+					if strings.Contains(up.Run.Message, "secret") {
+						t.Fatal("raw error leaked")
+					}
+				}
+			}
+			if !terminal {
+				t.Fatal("deployment terminal missing")
+			}
+			if test.pullError && len(compose.upCalls) != 0 {
+				t.Fatal("apply executed after failed pull")
+			}
+		})
 	}
 }

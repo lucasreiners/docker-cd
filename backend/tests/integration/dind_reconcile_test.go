@@ -66,7 +66,7 @@ func TestDinD_ReconcileComposeUp(t *testing.T) {
 	})
 
 	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
-	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
+	sdkAPI, err := dind.NewSDKClient(env.DockerHost)
 	if err != nil {
 		t.Fatalf("SDK client: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestDinD_ReconcileBlockedUntilRefreshComplete(t *testing.T) {
 	})
 
 	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
-	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
+	sdkAPI, err := dind.NewSDKClient(env.DockerHost)
 	if err != nil {
 		t.Fatalf("SDK client: %v", err)
 	}
@@ -297,7 +297,7 @@ func TestDinD_ReconcileNoOpWhenInSync(t *testing.T) {
 	})
 
 	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
-	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
+	sdkAPI, err := dind.NewSDKClient(env.DockerHost)
 	if err != nil {
 		t.Fatalf("SDK client: %v", err)
 	}
@@ -345,7 +345,7 @@ func TestDinD_DriftDetectionRevisionChange(t *testing.T) {
 	})
 
 	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
-	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
+	sdkAPI, err := dind.NewSDKClient(env.DockerHost)
 	if err != nil {
 		t.Fatalf("SDK client: %v", err)
 	}
@@ -375,6 +375,25 @@ func TestDinD_DriftDetectionRevisionChange(t *testing.T) {
 	})
 
 	runs2 := r.Reconcile(context.Background())
+	if len(runs2) != 0 {
+		t.Fatalf("revision-only change with identical Compose should be a no-op, got %d runs", len(runs2))
+	}
+	labels, err := inspector.GetStackLabels(context.Background())
+	if err != nil {
+		t.Fatalf("GetStackLabels after revision-only change: %v", err)
+	}
+	if labels["driftapp"].DesiredRevision != "rev1" {
+		t.Fatalf("revision-only change must retain the applied revision, got %q", labels["driftapp"].DesiredRevision)
+	}
+
+	// The agent reconciles Compose hash drift, not unrelated repository commits.
+	// Now change actual configuration and prove the hotfix revision is applied.
+	changedContent := []byte("services:\n  web:\n    image: nginx:alpine\n    environment:\n      TEST_VERSION: v2\n")
+	changed := store.Get()
+	changed.Stacks[0].Content = changedContent
+	changed.Stacks[0].ComposeHash = desiredstate.ComposeHash(changedContent)
+	store.Set(changed)
+	runs2 = r.Reconcile(context.Background())
 	if len(runs2) != 1 {
 		t.Fatalf("expected 1 re-sync run, got %d", len(runs2))
 	}
@@ -382,7 +401,7 @@ func TestDinD_DriftDetectionRevisionChange(t *testing.T) {
 		t.Fatalf("re-sync failed: %s", runs2[0].Error)
 	}
 
-	labels, err := inspector.GetStackLabels(context.Background())
+	labels, err = inspector.GetStackLabels(context.Background())
 	if err != nil {
 		t.Fatalf("GetStackLabels failed: %v", err)
 	}
@@ -420,7 +439,7 @@ func TestDinD_StackRemoval(t *testing.T) {
 	})
 
 	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
-	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
+	sdkAPI, err := dind.NewSDKClient(env.DockerHost)
 	if err != nil {
 		t.Fatalf("SDK client: %v", err)
 	}
@@ -485,7 +504,7 @@ func TestDinD_MultiServiceStack(t *testing.T) {
 	})
 
 	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
-	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
+	sdkAPI, err := dind.NewSDKClient(env.DockerHost)
 	if err != nil {
 		t.Fatalf("SDK client: %v", err)
 	}
@@ -539,7 +558,7 @@ func TestDinD_ComposeHashDrift(t *testing.T) {
 	})
 
 	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
-	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
+	sdkAPI, err := dind.NewSDKClient(env.DockerHost)
 	if err != nil {
 		t.Fatalf("SDK client: %v", err)
 	}
@@ -604,7 +623,7 @@ func TestDinD_FlagPolicyRequiresAck(t *testing.T) {
 	policy.DriftPolicy = "flag"
 
 	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
-	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
+	sdkAPI, err := dind.NewSDKClient(env.DockerHost)
 	if err != nil {
 		t.Fatalf("SDK client: %v", err)
 	}
@@ -658,7 +677,7 @@ func TestDinD_FourSpaceIndentLabels(t *testing.T) {
 	})
 
 	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
-	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
+	sdkAPI, err := dind.NewSDKClient(env.DockerHost)
 	if err != nil {
 		t.Fatalf("SDK client: %v", err)
 	}

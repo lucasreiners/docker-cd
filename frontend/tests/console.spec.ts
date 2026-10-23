@@ -1,8 +1,10 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, expect, it, vi } from 'vitest'
+import { fixtureData } from '../../tests/e2e/fixtures/frontend-data'
 import type { Operation } from '../src/services/api'
 import { requestJSON } from '../src/services/api'
 import { useConsoleStore } from '../src/store/console'
+import { useWorkStore } from '../src/store/work'
 
 vi.mock('../src/services/api', () => ({ requestJSON: vi.fn() }))
 beforeEach(() => {
@@ -49,4 +51,26 @@ it('retains independent instance and runtime errors without erasing history', as
   expect(store.instanceError).toBe('unavailable')
   expect(store.runtimeFor('apps/web').error).toBe('unavailable')
   expect(store.operations).toHaveLength(1)
+})
+
+it('does not let an older instance response replace restored feature capabilities', async () => {
+  const instance = fixtureData().instance
+  let resolve!: (value: unknown) => void
+  vi.mocked(requestJSON).mockReturnValueOnce(
+    new Promise((r) => {
+      resolve = r
+    }),
+  )
+  const store = useConsoleStore()
+  const older = store.loadInstance()
+  vi.mocked(requestJSON).mockResolvedValueOnce({
+    ...instance,
+    name: 'new',
+    capabilities: { ...instance.capabilities, liveWorkVersion: 2 },
+  })
+  await store.loadInstance()
+  resolve({ ...instance, name: 'old' })
+  await older
+  expect(store.instance?.name).toBe('new')
+  expect(useWorkStore().supported).toBe(true)
 })

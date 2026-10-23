@@ -21,6 +21,8 @@ const (
 	EventUpdateProgress  EventType = "update.progress"
 	EventUpdateSnapshot  EventType = "update.snapshot"
 	EventUpdateCompleted EventType = "update.completed"
+	EventWorkSnapshot    EventType = "work.snapshot"
+	EventWorkUpsert      EventType = "work.upsert"
 )
 
 // SSEEvent represents a single event to be sent over the SSE stream.
@@ -55,6 +57,7 @@ type Broadcaster struct {
 	eventID     atomic.Int64
 	progress    map[string]json.RawMessage
 	pulls       map[string]map[string]json.RawMessage
+	work        workState
 }
 
 // NewBroadcaster creates a new SSE event broadcaster.
@@ -65,6 +68,7 @@ func NewBroadcaster() *Broadcaster {
 		subscribers: make(map[*Subscriber]struct{}),
 		progress:    make(map[string]json.RawMessage),
 		pulls:       make(map[string]map[string]json.RawMessage),
+		work:        newWorkState(),
 	}
 }
 
@@ -105,6 +109,7 @@ func (b *Broadcaster) SubscribeWithSnapshot(store *Store) (*Subscriber, []SSEEve
 		b.newEvent(EventStackSnapshot, map[string]interface{}{"records": stacks}),
 		b.newEvent(EventRefreshStatus, snap),
 		b.newEvent(EventUpdateSnapshot, map[string]interface{}{"progress": progress}),
+		b.newEvent(EventWorkSnapshot, b.workSnapshotLocked()),
 	}
 }
 
@@ -166,13 +171,13 @@ func (b *Broadcaster) Publish(eventType EventType, payload interface{}) {
 			}
 		}
 	}
-	id := b.eventID.Add(1)
-	event := SSEEvent{
-		ID:   fmt.Sprintf("%d", id),
-		Type: eventType,
-		Data: string(data),
-	}
+	b.publishLocked(eventType, json.RawMessage(data))
+}
 
+// All v2 state and operation mutations take mu before accessing the operation
+// store. The store never calls back into the broadcaster (no inverse lock).
+func (b *Broadcaster) publishLocked(eventType EventType, payload interface{}) {
+	event := b.newEvent(eventType, payload)
 	for sub := range b.subscribers {
 		select {
 		case sub.Events <- event:

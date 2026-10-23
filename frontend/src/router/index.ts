@@ -4,7 +4,7 @@ export default createRouter({
   history: createWebHistory(),
   scrollBehavior: (_to, _from, saved) => saved || { top: 0 },
   routes: [
-    { path: '/', name: 'overview', component: () => import('../pages/OverviewPage.vue') },
+    { path: '/', redirect: (to) => ({ name: 'stacks', query: to.query }) },
     { path: '/stacks', name: 'stacks', component: () => import('../pages/StacksGrid.vue') },
     {
       path: '/stacks/:path+',

@@ -8,6 +8,7 @@
       <label
         ><span class="sr-only">Log container</span
         ><select v-model="selected" aria-label="Log container">
+          <option v-if="selected && !available" :value="selected">Selected container no longer observed · {{ selected }}</option>
           <option
             v-for="container in containers"
             :key="container.id"
@@ -23,7 +24,7 @@
         placeholder="Filter log lines…"
       /><button
         class="button"
-        :disabled="!selected"
+        :disabled="!selected || !available"
         @click="streaming ? pause() : load()"
       >
         {{ streaming ? "Pause logs" : "Follow logs" }}</button
@@ -32,6 +33,7 @@
       </button>
     </div>
     <p v-if="error" class="notice notice-error" role="alert">{{ error }}</p>
+    <p v-if="selected && !available" class="notice notice-warning" role="status">This selected container is not in the current stack observation. Logs have stopped; choose another container explicitly.</p>
     <pre ref="output" class="log-output" aria-label="Container log output">{{
       filtered ||
       (containers.length
@@ -46,10 +48,13 @@
 </template>
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { apiURL, type ContainerInfo } from '../services/api'
 
 const props = defineProps<{ stackPath: string; containers: ContainerInfo[] }>()
-const selected = ref(''),
+const route = useRoute(),
+  router = useRouter()
+const selected = ref(typeof route.query.container === 'string' ? route.query.container : ''),
   search = ref(''),
   text = ref(''),
   error = ref(''),
@@ -57,6 +62,9 @@ const selected = ref(''),
   status = ref('Idle'),
   output = ref<HTMLElement | null>(null)
 let controller: AbortController | null = null
+const available = computed(() =>
+  props.containers.some((container) => container.id === selected.value),
+)
 const filtered = computed(() =>
   search.value
     ? text.value
@@ -73,7 +81,7 @@ function pause() {
 }
 async function load() {
   pause()
-  if (!selected.value) return
+  if (!selected.value || !available.value) return
   const current = new AbortController()
   controller = current
   text.value = ''
@@ -122,12 +130,30 @@ async function load() {
 watch(
   () => props.containers.map((c) => c.id).join(','),
   () => {
-    if (!props.containers.some((c) => c.id === selected.value))
-      selected.value = props.containers[0]?.id || ''
+    if (!selected.value) selected.value = props.containers[0]?.id || ''
+    if (selected.value && !available.value) pause()
   },
   { immediate: true },
 )
-watch(selected, () => load(), { immediate: true })
+watch(
+  () => route.query.container,
+  (id) => {
+    if (typeof id === 'string') selected.value = id
+  },
+)
+watch(
+  [selected, available],
+  (_value, previous) => {
+    if (selected.value !== previous?.[0]) {
+      text.value = ''
+      error.value = ''
+    }
+    if (selected.value && selected.value !== route.query.container)
+      void router.replace({ query: { ...route.query, container: selected.value } })
+    void load()
+  },
+  { immediate: true },
+)
 onUnmounted(pause)
 function download() {
   const url = URL.createObjectURL(new Blob([text.value], { type: 'text/plain' }))

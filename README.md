@@ -149,11 +149,34 @@ The shared Verify workflow runs both new suites on pull requests and releases.
 
 ### Administration console
 
-The Vue administration console has five workspaces: **Overview, Stacks,
-Operations, Repository, and System**. It includes a collapsible sidebar, command
-search (Cmd/Ctrl+K), grouped resource tables, saved views and column preferences,
-tabbed stack details, read-only Compose source, container inspectors, and a global
-operation drawer. Themes and table density are stored in the browser.
+The Vue administration console opens on **Stacks**, with **Operations,
+Repository, and System** available for investigation. Stacks shows nested runtime
+containers, two previews per stack, bounded expansion, and filters/search across
+stacks, containers and image identities. Instance-wide actions stay independent of
+inventory filters. A compact work section and inline stack progress show running
+checks, image pulls and deployments; the header Work control remains available
+when navigating elsewhere. Parent and child operations share a workflow rather
+than appearing as duplicate jobs.
+
+Runtime observations refresh automatically while the page is visible, on return
+and reconnect, and after relevant work. Polling is every 15 seconds, but backend
+caching and observation cost affect the actual observation interval. The UI shows
+observation age and retains dated data on failures; a live connection does not
+prove current runtime health. Layer download/extraction progress is phase-local,
+not a percentage of the whole deployment.
+
+Container rows prefer repository digests over container IDs. Identity is inspected
+from the exact running container's immutable image, not from its mutable tag.
+Local builds and daemon metadata loss can make repository digests unavailable;
+digest kind may be unknown. **Registry freshness is not checked** by this view.
+Remote checks and outdated-image indicators are tracked separately in
+[issue #44](https://github.com/lucasreiners/docker-cd/issues/44). Technical image and
+container IDs remain in the inspector. An open inspector retains its dated image
+selection and explains later identity changes or missing metadata.
+
+The console retains command search (Cmd/Ctrl+K), nested stack deep links, tabbed
+details, read-only Compose source and operation inspection. Theme and density
+preferences are stored in the browser; Browser Back restores inventory context.
 
 The Configuration tab compares the desired Compose file with the source captured
 at the last successful deployment. Applied source snapshots are stored alongside
@@ -173,10 +196,19 @@ container replacement. Storage failures are reported in the console.
 
 Stack actions apply the reviewed Git revision, enforce refresh readiness and
 reconciliation policy, and run independently of the HTTP connection. Pending drift
-has an explicit acknowledgement action. Per-stack image updates apply only that
-stack and do not perform the instance-wide prune stage. Agent configuration is
-read-only in System; edit the deployment environment to change it. The schedule
-page reports the effective scheduler timezone rather than assuming browser time.
+requires reviewing the source comparison before approval of that exact revision.
+Per-stack image updates apply only that stack and do not prune images or force
+recreation of unchanged containers. **Update all stacks** includes pruning unused
+images across the Docker endpoint, including images outside managed stacks; the
+confirmation explicitly discloses this scope. **Check Git for changes** can
+interrupt active work and then apply configured reconciliation/removal policy—it
+is not a read-only runtime refresh. No action is automatically replayed after an
+uncertain network response.
+
+Agent configuration is read-only in System; edit the deployment environment to
+change it. Operations reports the effective scheduler timezone rather than
+assuming browser time. Console APIs must remain behind an authenticated reverse
+proxy or a restricted network; UI capability flags are not authorization.
 
 The UI uses MIT-licensed **PrimeVue 4.5.5** and **@primeuix/themes 2.0.3**, pinned
 because the newer major releases use a different licensing model.

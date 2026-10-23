@@ -2,7 +2,7 @@ import { defineConfig } from '@playwright/test'
 
 export default defineConfig({
   testDir: './specs',
-  testMatch: 'frontend.spec.ts',
+  testMatch: ['frontend.spec.ts', 'frontend-workspace.spec.ts'],
   fullyParallel: false,
   workers: 1,
   retries: 0,

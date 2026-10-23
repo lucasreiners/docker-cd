@@ -2,12 +2,14 @@ package refresh_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/lucasreiners/docker-cd/internal/config"
 	"github.com/lucasreiners/docker-cd/internal/desiredstate"
 	"github.com/lucasreiners/docker-cd/internal/git"
+	"github.com/lucasreiners/docker-cd/internal/operations"
 	"github.com/lucasreiners/docker-cd/internal/refresh"
 )
 
@@ -73,6 +75,80 @@ func TestService_StartupRefresh(t *testing.T) {
 			time.Sleep(50 * time.Millisecond)
 		}
 	}
+}
+
+func TestRefreshWorkFinishesBeforeChildAndRetainsCompletedRoot(t *testing.T) {
+	store := desiredstate.NewStore()
+	b := desiredstate.NewBroadcaster()
+	reader := &mockComposeReader{commit: "revision", entries: []git.ComposeEntry{{StackPath: "web", ComposeFile: "compose.yaml"}}}
+	svc := refresh.NewService(config.Config{GitRevision: "main"}, store, refresh.NewQueue(), reader)
+	svc.SetBroadcaster(b)
+	sub := b.Subscribe()
+	defer b.Unsubscribe(sub)
+	done := make(chan struct{})
+	release := make(chan struct{})
+	svc.SetReconcileFunc(func(ctx context.Context) {
+		defer close(done)
+		root, ok := b.Operations().Get(operations.ID(ctx))
+		if !ok || root.Kind != "refresh" || root.Status != "completed" {
+			t.Error("refresh boundary extended through child execution")
+		}
+		child := b.BeginOperation(ctx, "deployment", "startup", "web", "revision")
+		defer b.EndOperation(child, "completed", "done")
+		defer func() { <-release }()
+		s, events := b.SubscribeWithSnapshot(store)
+		defer b.Unsubscribe(s)
+		var snapshot desiredstate.WorkSnapshot
+		if err := json.Unmarshal([]byte(events[3].Data), &snapshot); err != nil {
+			t.Error(err)
+			return
+		}
+		if len(snapshot.Runs) != 0 || len(snapshot.Operations) != 2 {
+			t.Error("completed refresh run retained or child ancestry missing")
+		}
+		for _, op := range snapshot.Operations {
+			if op.RootOperationID != root.ID {
+				t.Error("child became a duplicate workflow root")
+			}
+		}
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stopped := make(chan struct{})
+	go func() { defer close(stopped); svc.Start(ctx) }()
+	// The child blocks so the completed-parent snapshot is authoritative while
+	// this test observes the terminal stream (no sleeps or racy reader mutations).
+	deadline := time.After(time.Second)
+	found := false
+	for !found {
+		select {
+		case event := <-sub.Events:
+			if event.Type != desiredstate.EventWorkUpsert {
+				continue
+			}
+			var up desiredstate.WorkUpsert
+			if err := json.Unmarshal([]byte(event.Data), &up); err != nil {
+				t.Fatal(err)
+			}
+			if up.Run != nil && up.Run.Status == "completed" {
+				if up.Run.Source != "refresh" || up.Run.Phase != "finished" || up.Run.ImageCount != 0 {
+					t.Error("refresh fabricated image work")
+				}
+				found = true
+			}
+		case <-deadline:
+			t.Error("missing refresh terminal")
+			found = true
+		}
+	}
+	close(release)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("child callback did not finish")
+	}
+	cancel()
+	<-stopped
 }
 
 func TestService_RequestRefresh(t *testing.T) {

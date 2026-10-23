@@ -17,6 +17,10 @@ jobs:
           cache: true
       - name: Run tests with coverage
         run: go test -coverprofile=coverage.out -covermode=atomic ./...
+      - name: Build backend
+        run: go build ./...
+      - name: Race-check live work and runtime observations
+        run: go test -race ./internal/desiredstate/... ./internal/operations/... ./internal/docker/... ./internal/http/... ./internal/reconcile/... ./internal/scheduler/... ./internal/refresh/...
 
   verify-frontend:
     runs-on: ubuntu-latest
@@ -36,7 +40,7 @@ jobs:
 
   verify-gitops-integration:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 40
     env:
       DOCKER_AUTH_CONFIG: '{}'
       GIN_MODE: release
@@ -48,9 +52,9 @@ jobs:
           cache: true
       - name: Verify Docker and Compose prerequisites
         run: docker info && docker compose version
-      - name: Git, signed webhooks, SSE and real DinD lifecycle
+      - name: Full real-Docker lifecycle, image identity and observation coverage
         working-directory: backend
-        run: go test -race -tags integration ./tests/integration -run 'Test(GitOps|SlowPull)Lifecycle' -count=1 -timeout=8m -v
+        run: go test -race -tags integration ./tests/integration/... -count=1 -timeout=30m -v
 
   verify-e2e:
     runs-on: ubuntu-latest

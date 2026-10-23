@@ -2,6 +2,7 @@ package reconcile
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -14,6 +15,28 @@ type argCapturingRunner struct {
 	calls []runCall
 	out   []byte
 	err   error
+}
+
+func TestComposePsRetainsExactInternalIDAndHandlesShortIDs(t *testing.T) {
+	for _, id := range []string{strings.Repeat("a", 64), "short", ""} {
+		t.Run(id[:min(12, len(id))], func(t *testing.T) {
+			runner := &argCapturingRunner{out: []byte(`{"ID":"` + id + `","Name":"web","Service":"web","Image":"nginx:stable"}`)}
+			rows, err := NewDockerComposeRunner(runner, "").ComposePs(context.Background(), "apps-web")
+			if err != nil || len(rows) != 1 {
+				t.Fatalf("unexpected listing: %+v %v", rows, err)
+			}
+			if rows[0].FullID != id || rows[0].ID != id[:min(12, len(id))] || rows[0].ComposeProject != "apps-web" {
+				t.Fatalf("lost exact enumeration scope: %+v", rows[0])
+			}
+			encoded, err := json.Marshal(rows)
+			if err != nil || strings.Contains(string(encoded), "FullID") || strings.Contains(string(encoded), "ComposeProject") || (len(id) > 12 && strings.Contains(string(encoded), id)) {
+				t.Fatalf("internal scope leaked: %s %v", encoded, err)
+			}
+			if len(runner.calls) != 1 || !sliceEqual(runner.calls[0].Args, []string{"compose", "-p", "apps-web", "ps", "-a", "--no-trunc", "--format", "json"}) {
+				t.Fatal("inspection must remain a single read-only Compose call", runner.calls)
+			}
+		})
+	}
 }
 
 type runCall struct {
@@ -314,7 +337,7 @@ func TestComposePs_VerifiesArgs(t *testing.T) {
 
 	args := runner.calls[0].Args
 	hostArgs := docker.HostArgs("/sock")
-	expected := append(hostArgs, "compose", "-p", "myproj", "ps", "-a", "--format", "json")
+	expected := append(hostArgs, "compose", "-p", "myproj", "ps", "-a", "--no-trunc", "--format", "json")
 	if !sliceEqual(args, expected) {
 		t.Errorf("args = %v, want %v", args, expected)
 	}

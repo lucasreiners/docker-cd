@@ -3,7 +3,9 @@
 package integration_test
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -11,6 +13,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/lucasreiners/docker-cd/internal/config"
 	"github.com/lucasreiners/docker-cd/internal/desiredstate"
 	"github.com/lucasreiners/docker-cd/internal/docker"
@@ -55,10 +60,11 @@ func TestDinD_UpdateCycleUsesLocalClone(t *testing.T) {
 		},
 	})
 
-	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
+	sdkAPI, err := dind.NewSDKClient(env.DockerHost)
 	if err != nil {
 		t.Fatalf("SDK client: %v", err)
 	}
+	t.Cleanup(func() { _ = sdkAPI.Close() })
 	client := docker.NewClient(sdkAPI)
 	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
 	inspector := reconcile.NewDockerContainerInspector(client)
@@ -75,8 +81,18 @@ func TestDinD_UpdateCycleUsesLocalClone(t *testing.T) {
 		t.Fatal("expected scheduler to be enabled")
 	}
 	schedulerSvc.SetRepoPath(repoDir)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(func() {
+		cancel()
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer stopCancel()
+		_ = schedulerSvc.Stop(stopCtx)
+	})
+	if run := reconciler.ReconcileStack(ctx, stackPath); run.Result != "success" {
+		t.Fatalf("initial reconcile: result=%s error=%s", run.Result, run.Error)
+	}
 
-	if err := schedulerSvc.TriggerUpdateCycle(context.Background()); err != nil {
+	if err := schedulerSvc.TriggerUpdateCycle(ctx); err != nil {
 		t.Fatalf("TriggerUpdateCycle failed: %v", err)
 	}
 
@@ -101,16 +117,21 @@ func TestDinD_UpdateCycleUsesLocalClone(t *testing.T) {
 func TestDinD_UpdateCycleRestartsContainers(t *testing.T) {
 	env := dind.StartT(t)
 	runner := &dindRunner{Host: env.DockerHost}
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	t.Cleanup(cancel)
+	fixture, err := dind.NewMutableImage(ctx, env)
+	if err != nil {
+		t.Fatalf("create mutable image fixture: %v", err)
+	}
 
 	repoDir := t.TempDir()
 
-	// 1. Create stack dir with nginx:alpine compose file
 	stackPath := "restartapp"
 	stackDir := filepath.Join(repoDir, stackPath)
 	if err := os.MkdirAll(stackDir, 0755); err != nil {
 		t.Fatalf("failed to create stack dir: %v", err)
 	}
-	composeContent := []byte("services:\n  web:\n    image: nginx:alpine\n")
+	composeContent := []byte(fmt.Sprintf("services:\n  web:\n    image: %s\n    command: [\"sleep\", \"86400\"]\n", fixture.Ref))
 	composeFile := "docker-compose.yml"
 	if err := os.WriteFile(filepath.Join(stackDir, composeFile), composeContent, 0644); err != nil {
 		t.Fatalf("failed to write compose file: %v", err)
@@ -130,10 +151,11 @@ func TestDinD_UpdateCycleRestartsContainers(t *testing.T) {
 		}},
 	})
 
-	sdkAPI, err := docker.NewSDKClient(env.DockerHost)
+	sdkAPI, err := dind.NewSDKClient(env.DockerHost)
 	if err != nil {
 		t.Fatalf("SDK client: %v", err)
 	}
+	t.Cleanup(func() { _ = sdkAPI.Close() })
 	client := docker.NewClient(sdkAPI)
 	composeRunner := reconcile.NewDockerComposeRunner(runner, env.DockerHost)
 	inspector := reconcile.NewDockerContainerInspector(client)
@@ -141,79 +163,113 @@ func TestDinD_UpdateCycleRestartsContainers(t *testing.T) {
 	policy := reconcile.DefaultPolicy()
 	reconciler := newDindReconciler(store, policy, composeRunner, inspector, reconcile.NewAckStore(), "")
 
-	// 2. First update cycle — deploys the stack
+	// A is prewarmed, so explicitly deploy instead of expecting an unchanged
+	// image update to create a missing stack.
+	if run := reconciler.ReconcileStack(ctx, stackPath); run.Result != "success" {
+		t.Fatalf("initial reconcile: result=%s error=%s", run.Result, run.Error)
+	}
+	initial := waitForMutableImageContainer(t, ctx, sdkAPI, stackPath, fixture.Initial.ImageID, "")
+	if initial.Config.Image != fixture.Ref {
+		t.Fatalf("initial image reference = %q, want %q", initial.Config.Image, fixture.Ref)
+	}
+	remote, err := fixture.RemoteDigest(ctx)
+	if err != nil || remote != fixture.Initial.Digest {
+		t.Fatalf("initial remote digest = %q, want %q (error: %v)", remote, fixture.Initial.Digest, err)
+	}
+	t.Logf("initial: C1=%s imageA=%s ref=%s manifestA=%s composeHash=%s", initial.ID, initial.Image, initial.Config.Image, remote, composeHash)
+
 	cfg := config.Config{UpdaterEnabled: true, UpdaterCron: "0 3 * * *"}
 	schedulerSvc, err := scheduler.NewSchedulerService(cfg, logger, store, client, reconciler, nil)
 	if err != nil {
 		t.Fatalf("failed to create scheduler: %v", err)
 	}
 	schedulerSvc.SetRepoPath(repoDir)
-
-	if err := schedulerSvc.TriggerUpdateCycle(context.Background()); err != nil {
-		t.Fatalf("first TriggerUpdateCycle failed: %v", err)
-	}
-	waitForUpdateCompletion(t, schedulerSvc, 30*time.Second)
-	waitForContainers(t, runner, 1, 20*time.Second)
-
-	// 3. Record container IDs BEFORE second update
-	containers1, err := client.ListContainersWithLabel(context.Background(), reconcile.LabelStackPath)
-	if err != nil {
-		t.Fatalf("ListContainersWithLabel failed: %v", err)
-	}
-	if len(containers1) == 0 {
-		t.Fatal("expected at least 1 container after first deploy")
-	}
-	idsBefore := make(map[string]bool)
-	for _, c := range containers1 {
-		idsBefore[c.ContainerID] = true
-	}
-	t.Logf("container IDs before update: %v", idsBefore)
-
-	// 4. Mark stack as synced (simulates compose unchanged, just image pull)
-	store.Set(&desiredstate.Snapshot{
-		Revision:       "rev1",
-		CommitMessage:  "update cycle",
-		RefreshStatus:  desiredstate.RefreshStatusCompleted,
-		UpdatesBlocked: false,
-		Stacks: []desiredstate.StackRecord{{
-			Path: stackPath, ComposeFile: composeFile,
-			ComposeHash: composeHash,
-			Status:      desiredstate.StackSyncSynced,
-			Content:     composeContent,
-		}},
+	t.Cleanup(func() {
+		cancel()
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer stopCancel()
+		_ = schedulerSvc.Stop(stopCtx)
 	})
 
-	// 5. Second update cycle — should pull images and force-recreate
-	if err := schedulerSvc.TriggerUpdateCycle(context.Background()); err != nil {
-		t.Fatalf("second TriggerUpdateCycle failed: %v", err)
+	// An unchanged tag must not force-recreate a healthy running container.
+	if err := schedulerSvc.TriggerUpdateCycle(ctx); err != nil {
+		t.Fatalf("unchanged TriggerUpdateCycle: %v", err)
 	}
 	waitForUpdateCompletion(t, schedulerSvc, 30*time.Second)
-	// Allow time for new containers to spin up
-	time.Sleep(3 * time.Second)
+	unchanged := waitForMutableImageContainer(t, ctx, sdkAPI, stackPath, fixture.Initial.ImageID, "")
+	if unchanged.ID != initial.ID {
+		t.Fatalf("unchanged image recreated C1: before=%s after=%s", initial.ID, unchanged.ID)
+	}
+	t.Logf("unchanged update: C1=%s imageA=%s", unchanged.ID, unchanged.Image)
 
-	// 6. Record container IDs AFTER second update
-	containers2, err := client.ListContainersWithLabel(context.Background(), reconcile.LabelStackPath)
+	// Publish B only now; the unchanged cycle prunes unused images. Restore
+	// local A without pushing so scheduler's before/after pull IDs really differ.
+	changed, err := fixture.PublishChanged(ctx)
 	if err != nil {
-		t.Fatalf("ListContainersWithLabel after update failed: %v", err)
+		t.Fatalf("publish changed image: %v", err)
 	}
-	if len(containers2) == 0 {
-		t.Fatal("expected at least 1 container after second update")
+	local, err := fixture.LocalImageID(ctx)
+	if err != nil || local != fixture.Initial.ImageID {
+		t.Fatalf("before changed update local image = %q, want A=%q (error: %v)", local, fixture.Initial.ImageID, err)
 	}
+	remote, err = fixture.RemoteDigest(ctx)
+	if err != nil || remote != changed.Digest {
+		t.Fatalf("before changed update remote digest = %q, want B=%q (error: %v)", remote, changed.Digest, err)
+	}
+	beforePull := waitForMutableImageContainer(t, ctx, sdkAPI, stackPath, fixture.Initial.ImageID, "")
+	if beforePull.ID != initial.ID {
+		t.Fatalf("publishing B unexpectedly replaced running A: %s", beforePull.ID)
+	}
+	t.Logf("before changed update: remoteB=%s imageB=%s localA=%s runningC1=%s", remote, changed.ImageID, local, beforePull.ID)
 
-	// 7. ASSERT: container IDs must have changed (containers were recreated)
-	allSame := true
-	for _, c := range containers2 {
-		if !idsBefore[c.ContainerID] {
-			allSame = false
-			break
+	if err := schedulerSvc.TriggerUpdateCycle(ctx); err != nil {
+		t.Fatalf("changed TriggerUpdateCycle: %v", err)
+	}
+	waitForUpdateCompletion(t, schedulerSvc, 30*time.Second)
+	replaced := waitForMutableImageContainer(t, ctx, sdkAPI, stackPath, changed.ImageID, initial.ID)
+	if replaced.Config.Image != fixture.Ref || replaced.Config.Labels[reconcile.LabelDesiredComposeHash] != composeHash {
+		t.Fatalf("image reference/compose hash changed: ref=%q labels=%v", replaced.Config.Image, replaced.Config.Labels)
+	}
+	// Generated deployment labels (such as synced_at) can change Compose's
+	// effective config-hash. Assert the actual source configuration instead.
+	afterCompose, err := os.ReadFile(filepath.Join(stackDir, composeFile))
+	if err != nil || !bytes.Equal(afterCompose, composeContent) {
+		t.Fatalf("source Compose changed during image-only update (error: %v)", err)
+	}
+	if snap := store.Get(); len(snap.Stacks) != 1 || !bytes.Equal(snap.Stacks[0].Content, composeContent) || snap.Stacks[0].ComposeHash != composeHash {
+		t.Fatal("desired source configuration changed during image-only update")
+	}
+	local, err = fixture.LocalImageID(ctx)
+	if err != nil || local != changed.ImageID {
+		t.Fatalf("after update local image = %q, want B=%q (error: %v)", local, changed.ImageID, err)
+	}
+	t.Logf("changed update: C2=%s imageB=%s ref=%s manifestB=%s composeHash=%s", replaced.ID, replaced.Image, replaced.Config.Image, changed.Digest, composeHash)
+}
+
+// Filter the exact managed stack: the private registry is also a running
+// container. Poll actual runtime image/state, not merely scheduler idleness.
+func waitForMutableImageContainer(t *testing.T, ctx context.Context, api *dind.AuthenticatedClient, stack, imageID, previousID string) types.ContainerJSON {
+	t.Helper()
+	pollCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	var last string
+	for {
+		items, err := api.ContainerList(pollCtx, container.ListOptions{All: true, Filters: filters.NewArgs(filters.Arg("label", reconcile.LabelStackPath+"="+stack))})
+		if err == nil && len(items) == 1 {
+			current, inspectErr := api.ContainerInspect(pollCtx, items[0].ID)
+			if inspectErr == nil && current.State != nil && current.State.Running && current.Image == imageID && current.ID != previousID {
+				return current
+			}
+			last = fmt.Sprintf("container=%s image=%s state=%+v inspectError=%v", current.ID, current.Image, current.State, inspectErr)
+		} else {
+			last = fmt.Sprintf("containers=%d error=%v", len(items), err)
+		}
+		select {
+		case <-pollCtx.Done():
+			t.Fatalf("waiting for stack %s running image %s (previous=%s): %s: %v", stack, imageID, previousID, last, pollCtx.Err())
+		case <-time.After(100 * time.Millisecond):
 		}
 	}
-	if allSame {
-		t.Fatal("BUG: container IDs are the same after update cycle — containers were NOT recreated with new images")
-	}
-
-	t.Log("SUCCESS: containers were recreated after update cycle")
-	cleanupStack(t, runner, stackPath)
 }
 
 func waitForUpdateCompletion(t *testing.T, schedulerSvc *scheduler.SchedulerService, timeout time.Duration) {

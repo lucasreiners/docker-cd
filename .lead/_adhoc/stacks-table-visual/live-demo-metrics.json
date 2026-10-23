@@ -1,0 +1,1030 @@
+{
+  "generatedAt": "2026-10-23T18:01:21.184Z",
+  "desktop": {
+    "responseStatus": 200,
+    "metrics": {
+      "url": "http://localhost:18881/stacks",
+      "viewport": {
+        "innerWidth": 1440,
+        "innerHeight": 900
+      },
+      "document": {
+        "clientWidth": 1440,
+        "scrollWidth": 1440
+      },
+      "scroll": {
+        "x": 262,
+        "y": 245.1875,
+        "width": 1148,
+        "height": 421.984375,
+        "clientWidth": 1146,
+        "scrollWidth": 1146,
+        "overflowX": "auto"
+      },
+      "table": {
+        "x": 263,
+        "y": 246.1875,
+        "width": 1146,
+        "height": 419.984375
+      },
+      "headers": [
+        {
+          "text": "Resource",
+          "x": 263,
+          "y": 246.1875,
+          "width": 332.328125,
+          "height": 36
+        },
+        {
+          "text": "State",
+          "x": 595.328125,
+          "y": 246.1875,
+          "width": 252.109375,
+          "height": 36
+        },
+        {
+          "text": "Image / revision",
+          "x": 847.4375,
+          "y": 246.1875,
+          "width": 217.734375,
+          "height": 36
+        },
+        {
+          "text": "Digest",
+          "x": 1065.171875,
+          "y": 246.1875,
+          "width": 183.359375,
+          "height": 36
+        },
+        {
+          "text": "Actions",
+          "x": 1248.53125,
+          "y": 246.1875,
+          "width": 160.46875,
+          "height": 36
+        }
+      ],
+      "stacks": [
+        {
+          "path": "apps/broken",
+          "x": 263,
+          "y": 282.1875,
+          "width": 1146,
+          "height": 48,
+          "cells": [
+            {
+              "x": 263,
+              "y": 282.1875,
+              "width": 332.328125,
+              "height": 48
+            },
+            {
+              "x": 595.328125,
+              "y": 282.1875,
+              "width": 252.109375,
+              "height": 48
+            },
+            {
+              "x": 847.4375,
+              "y": 282.1875,
+              "width": 217.734375,
+              "height": 48
+            },
+            {
+              "x": 1065.171875,
+              "y": 282.1875,
+              "width": 183.359375,
+              "height": 48
+            },
+            {
+              "x": 1248.53125,
+              "y": 282.1875,
+              "width": 160.46875,
+              "height": 48
+            }
+          ],
+          "text": "apps/broken\n\t\nFailed\n0 / 0 running\napps/broken deployment: Failed\n\t99616ad4 / not yet\t—\t\nRetry deployment…"
+        },
+        {
+          "path": "apps/unhealthy",
+          "x": 263,
+          "y": 390.171875,
+          "width": 1146,
+          "height": 48,
+          "cells": [
+            {
+              "x": 263,
+              "y": 390.171875,
+              "width": 332.328125,
+              "height": 48
+            },
+            {
+              "x": 595.328125,
+              "y": 390.171875,
+              "width": 252.109375,
+              "height": 48
+            },
+            {
+              "x": 847.4375,
+              "y": 390.171875,
+              "width": 217.734375,
+              "height": 48
+            },
+            {
+              "x": 1065.171875,
+              "y": 390.171875,
+              "width": 183.359375,
+              "height": 48
+            },
+            {
+              "x": 1248.53125,
+              "y": 390.171875,
+              "width": 160.46875,
+              "height": 48
+            }
+          ],
+          "text": "apps/unhealthy\n\t\nApplied\n1 / 1 running · 1 unhealthy\napps/unhealthy deployment: Applied\n\t99616ad4 / 4f5b1348\t—\t\nUpdate images…"
+        },
+        {
+          "path": "apps/welcome",
+          "x": 263,
+          "y": 482.171875,
+          "width": 1146,
+          "height": 48,
+          "cells": [
+            {
+              "x": 263,
+              "y": 482.171875,
+              "width": 332.328125,
+              "height": 48
+            },
+            {
+              "x": 595.328125,
+              "y": 482.171875,
+              "width": 252.109375,
+              "height": 48
+            },
+            {
+              "x": 847.4375,
+              "y": 482.171875,
+              "width": 217.734375,
+              "height": 48
+            },
+            {
+              "x": 1065.171875,
+              "y": 482.171875,
+              "width": 183.359375,
+              "height": 48
+            },
+            {
+              "x": 1248.53125,
+              "y": 482.171875,
+              "width": 160.46875,
+              "height": 48
+            }
+          ],
+          "text": "apps/welcome\n\t\nApplied\n1 / 1 running\napps/welcome deployment: Applied\n\t99616ad4\t—\t\nUpdate images…"
+        },
+        {
+          "path": "infra/heartbeat",
+          "x": 263,
+          "y": 574.171875,
+          "width": 1146,
+          "height": 48,
+          "cells": [
+            {
+              "x": 263,
+              "y": 574.171875,
+              "width": 332.328125,
+              "height": 48
+            },
+            {
+              "x": 595.328125,
+              "y": 574.171875,
+              "width": 252.109375,
+              "height": 48
+            },
+            {
+              "x": 847.4375,
+              "y": 574.171875,
+              "width": 217.734375,
+              "height": 48
+            },
+            {
+              "x": 1065.171875,
+              "y": 574.171875,
+              "width": 183.359375,
+              "height": 48
+            },
+            {
+              "x": 1248.53125,
+              "y": 574.171875,
+              "width": 160.46875,
+              "height": 48
+            }
+          ],
+          "text": "infra/heartbeat\n\t\nApplied\n1 / 1 running\ninfra/heartbeat deployment: Applied\n\t99616ad4 / b45624f4\t—\t\nUpdate images…"
+        }
+      ],
+      "children": [
+        {
+          "id": "2dee0eb9002b",
+          "x": 263,
+          "y": 438.171875,
+          "width": 1146,
+          "height": 44,
+          "cells": [
+            {
+              "x": 263,
+              "y": 438.171875,
+              "width": 332.328125,
+              "height": 44
+            },
+            {
+              "x": 595.328125,
+              "y": 438.171875,
+              "width": 252.109375,
+              "height": 44
+            },
+            {
+              "x": 847.4375,
+              "y": 438.171875,
+              "width": 217.734375,
+              "height": 44
+            },
+            {
+              "x": 1065.171875,
+              "y": 438.171875,
+              "width": 183.359375,
+              "height": 44
+            },
+            {
+              "x": 1248.53125,
+              "y": 438.171875,
+              "width": 160.46875,
+              "height": 44
+            }
+          ],
+          "text": "apps-unhealthy-worker-1\n\t\nRunning · unhealthy\n\t\nbusybox:1.38.0\n\t\nsha256:fd7d…7e6e\n\t"
+        },
+        {
+          "id": "d983e84a8a0a",
+          "x": 263,
+          "y": 530.171875,
+          "width": 1146,
+          "height": 44,
+          "cells": [
+            {
+              "x": 263,
+              "y": 530.171875,
+              "width": 332.328125,
+              "height": 44
+            },
+            {
+              "x": 595.328125,
+              "y": 530.171875,
+              "width": 252.109375,
+              "height": 44
+            },
+            {
+              "x": 847.4375,
+              "y": 530.171875,
+              "width": 217.734375,
+              "height": 44
+            },
+            {
+              "x": 1065.171875,
+              "y": 530.171875,
+              "width": 183.359375,
+              "height": 44
+            },
+            {
+              "x": 1248.53125,
+              "y": 530.171875,
+              "width": 160.46875,
+              "height": 44
+            }
+          ],
+          "text": "apps-welcome-web-1\n\t\nRunning · healthy\n\t\nnginx:alpine\n\t\nsha256:df22…eac2\n\t"
+        },
+        {
+          "id": "179b8b250dc3",
+          "x": 263,
+          "y": 622.171875,
+          "width": 1146,
+          "height": 44,
+          "cells": [
+            {
+              "x": 263,
+              "y": 622.171875,
+              "width": 332.328125,
+              "height": 44
+            },
+            {
+              "x": 595.328125,
+              "y": 622.171875,
+              "width": 252.109375,
+              "height": 44
+            },
+            {
+              "x": 847.4375,
+              "y": 622.171875,
+              "width": 217.734375,
+              "height": 44
+            },
+            {
+              "x": 1065.171875,
+              "y": 622.171875,
+              "width": 183.359375,
+              "height": 44
+            },
+            {
+              "x": 1248.53125,
+              "y": 622.171875,
+              "width": 160.46875,
+              "height": 44
+            }
+          ],
+          "text": "infra-heartbeat-worker-1\n\t\nRunning · no health check\n\t\nbusybox:1.38.0\n\t\nsha256:fd7d…7e6e\n\t"
+        }
+      ],
+      "names": [
+        {
+          "text": "apps/broken",
+          "family": "\"DM Sans Variable\", sans-serif",
+          "size": "13px",
+          "weight": "600"
+        },
+        {
+          "text": "apps/unhealthy",
+          "family": "\"DM Sans Variable\", sans-serif",
+          "size": "13px",
+          "weight": "600"
+        },
+        {
+          "text": "apps-unhealthy-worker-1",
+          "family": "\"DM Sans Variable\", sans-serif",
+          "size": "13px",
+          "weight": "500"
+        },
+        {
+          "text": "apps/welcome",
+          "family": "\"DM Sans Variable\", sans-serif",
+          "size": "13px",
+          "weight": "600"
+        },
+        {
+          "text": "apps-welcome-web-1",
+          "family": "\"DM Sans Variable\", sans-serif",
+          "size": "13px",
+          "weight": "500"
+        },
+        {
+          "text": "infra/heartbeat",
+          "family": "\"DM Sans Variable\", sans-serif",
+          "size": "13px",
+          "weight": "600"
+        },
+        {
+          "text": "infra-heartbeat-worker-1",
+          "family": "\"DM Sans Variable\", sans-serif",
+          "size": "13px",
+          "weight": "500"
+        }
+      ],
+      "technical": [
+        {
+          "text": "99616ad4",
+          "family": "\"IBM Plex Mono\", monospace",
+          "size": "12px",
+          "weight": "400"
+        },
+        {
+          "text": "not yet",
+          "family": "\"IBM Plex Mono\", monospace",
+          "size": "12px",
+          "weight": "400"
+        },
+        {
+          "text": "99616ad4",
+          "family": "\"IBM Plex Mono\", monospace",
+          "size": "12px",
+          "weight": "400"
+        },
+        {
+          "text": "4f5b1348",
+          "family": "\"IBM Plex Mono\", monospace",
+          "size": "12px",
+          "weight": "400"
+        },
+        {
+          "text": "sha256:fd7d…7e6e",
+          "family": "\"IBM Plex Mono\", monospace",
+          "size": "12px",
+          "weight": "400"
+        },
+        {
+          "text": "99616ad4",
+          "family": "\"IBM Plex Mono\", monospace",
+          "size": "12px",
+          "weight": "400"
+        },
+        {
+          "text": "sha256:df22…eac2",
+          "family": "\"IBM Plex Mono\", monospace",
+          "size": "12px",
+          "weight": "400"
+        },
+        {
+          "text": "99616ad4",
+          "family": "\"IBM Plex Mono\", monospace",
+          "size": "12px",
+          "weight": "400"
+        },
+        {
+          "text": "b45624f4",
+          "family": "\"IBM Plex Mono\", monospace",
+          "size": "12px",
+          "weight": "400"
+        },
+        {
+          "text": "sha256:fd7d…7e6e",
+          "family": "\"IBM Plex Mono\", monospace",
+          "size": "12px",
+          "weight": "400"
+        }
+      ],
+      "statusText": [
+        {
+          "path": "apps/broken",
+          "text": "Failed\n0 / 0 running\napps/broken deployment: Failed",
+          "aria": [
+            "Hide containers for apps/broken",
+            "Deployment: Failed",
+            "Runtime: 0 / 0 running",
+            "Desired 99616ad4abb7dd3f3c75db2f9a5145738e1dc092",
+            "Applied not yet",
+            "Repository digest applies to containers",
+            "Actions for apps/broken"
+          ]
+        },
+        {
+          "path": "apps/unhealthy",
+          "text": "Applied\n1 / 1 running · 1 unhealthy\napps/unhealthy deployment: Applied",
+          "aria": [
+            "Hide containers for apps/unhealthy",
+            "Deployment: Applied",
+            "Runtime: 1 / 1 running · 1 unhealthy",
+            "Desired 99616ad4abb7dd3f3c75db2f9a5145738e1dc092",
+            "Applied 4f5b1348f9abe93dd2de128a51ac8a0ae98cff12",
+            "Repository digest applies to containers",
+            "Actions for apps/unhealthy"
+          ]
+        },
+        {
+          "path": "apps/welcome",
+          "text": "Applied\n1 / 1 running\napps/welcome deployment: Applied",
+          "aria": [
+            "Hide containers for apps/welcome",
+            "Deployment: Applied",
+            "Runtime: 1 / 1 running",
+            "Desired 99616ad4abb7dd3f3c75db2f9a5145738e1dc092",
+            "Repository digest applies to containers",
+            "Actions for apps/welcome"
+          ]
+        },
+        {
+          "path": "infra/heartbeat",
+          "text": "Applied\n1 / 1 running\ninfra/heartbeat deployment: Applied",
+          "aria": [
+            "Hide containers for infra/heartbeat",
+            "Deployment: Applied",
+            "Runtime: 1 / 1 running",
+            "Desired 99616ad4abb7dd3f3c75db2f9a5145738e1dc092",
+            "Applied b45624f478b0507699b8a2f28d31d2e22fb106fe",
+            "Repository digest applies to containers",
+            "Actions for infra/heartbeat"
+          ]
+        }
+      ]
+    },
+    "interaction": {
+      "logHref": "/stacks/apps/welcome?tab=logs&container=d983e84a8a0a",
+      "digestVisible": true,
+      "copyButton": true,
+      "copyNotice": true,
+      "logsVisible": true
+    }
+  },
+  "mobile": {
+    "responseStatus": 200,
+    "metrics": {
+      "url": "http://localhost:18881/stacks",
+      "viewport": {
+        "innerWidth": 320,
+        "innerHeight": 900
+      },
+      "document": {
+        "clientWidth": 320,
+        "scrollWidth": 320
+      },
+      "scroll": {
+        "x": 14,
+        "y": 569.953125,
+        "width": 292,
+        "height": 421.984375,
+        "clientWidth": 290,
+        "scrollWidth": 1000,
+        "overflowX": "auto"
+      },
+      "table": {
+        "x": 15,
+        "y": 570.953125,
+        "width": 1000,
+        "height": 419.984375
+      },
+      "headers": [
+        {
+          "text": "Resource",
+          "x": 15,
+          "y": 570.953125,
+          "width": 290,
+          "height": 36
+        },
+        {
+          "text": "State",
+          "x": 305,
+          "y": 570.953125,
+          "width": 220,
+          "height": 36
+        },
+        {
+          "text": "Image / revision",
+          "x": 525,
+          "y": 570.953125,
+          "width": 190,
+          "height": 36
+        },
+        {
+          "text": "Digest",
+          "x": 715,
+          "y": 570.953125,
+          "width": 160,
+          "height": 36
+        },
+        {
+          "text": "Actions",
+          "x": 875,
+          "y": 570.953125,
+          "width": 140,
+          "height": 36
+        }
+      ],
+      "stacks": [
+        {
+          "path": "apps/broken",
+          "x": 15,
+          "y": 606.953125,
+          "width": 1000,
+          "height": 48,
+          "cells": [
+            {
+              "x": 15,
+              "y": 606.953125,
+              "width": 290,
+              "height": 48
+            },
+            {
+              "x": 305,
+              "y": 606.953125,
+              "width": 220,
+              "height": 48
+            },
+            {
+              "x": 525,
+              "y": 606.953125,
+              "width": 190,
+              "height": 48
+            },
+            {
+              "x": 715,
+              "y": 606.953125,
+              "width": 160,
+              "height": 48
+            },
+            {
+              "x": 875,
+              "y": 606.953125,
+              "width": 140,
+              "height": 48
+            }
+          ],
+          "text": "apps/broken\n\t\nFailed\n0 / 0 running\napps/broken deployment: Failed\n\t99616ad4 / not yet\t—\t\nRetry deployment…"
+        },
+        {
+          "path": "apps/unhealthy",
+          "x": 15,
+          "y": 714.9375,
+          "width": 1000,
+          "height": 48,
+          "cells": [
+            {
+              "x": 15,
+              "y": 714.9375,
+              "width": 290,
+              "height": 48
+            },
+            {
+              "x": 305,
+              "y": 714.9375,
+              "width": 220,
+              "height": 48
+            },
+            {
+              "x": 525,
+              "y": 714.9375,
+              "width": 190,
+              "height": 48
+            },
+            {
+              "x": 715,
+              "y": 714.9375,
+              "width": 160,
+              "height": 48
+            },
+            {
+              "x": 875,
+              "y": 714.9375,
+              "width": 140,
+              "height": 48
+            }
+          ],
+          "text": "apps/unhealthy\n\t\nApplied\n1 / 1 running · 1 unhealthy\napps/unhealthy deployment: Applied\n\t99616ad4 / 4f5b1348\t—\t\nUpdate images…"
+        },
+        {
+          "path": "apps/welcome",
+          "x": 15,
+          "y": 806.9375,
+          "width": 1000,
+          "height": 48,
+          "cells": [
+            {
+              "x": 15,
+              "y": 806.9375,
+              "width": 290,
+              "height": 48
+            },
+            {
+              "x": 305,
+              "y": 806.9375,
+              "width": 220,
+              "height": 48
+            },
+            {
+              "x": 525,
+              "y": 806.9375,
+              "width": 190,
+              "height": 48
+            },
+            {
+              "x": 715,
+              "y": 806.9375,
+              "width": 160,
+              "height": 48
+            },
+            {
+              "x": 875,
+              "y": 806.9375,
+              "width": 140,
+              "height": 48
+            }
+          ],
+          "text": "apps/welcome\n\t\nApplied\n1 / 1 running\napps/welcome deployment: Applied\n\t99616ad4\t—\t\nUpdate images…"
+        },
+        {
+          "path": "infra/heartbeat",
+          "x": 15,
+          "y": 898.9375,
+          "width": 1000,
+          "height": 48,
+          "cells": [
+            {
+              "x": 15,
+              "y": 898.9375,
+              "width": 290,
+              "height": 48
+            },
+            {
+              "x": 305,
+              "y": 898.9375,
+              "width": 220,
+              "height": 48
+            },
+            {
+              "x": 525,
+              "y": 898.9375,
+              "width": 190,
+              "height": 48
+            },
+            {
+              "x": 715,
+              "y": 898.9375,
+              "width": 160,
+              "height": 48
+            },
+            {
+              "x": 875,
+              "y": 898.9375,
+              "width": 140,
+              "height": 48
+            }
+          ],
+          "text": "infra/heartbeat\n\t\nApplied\n1 / 1 running\ninfra/heartbeat deployment: Applied\n\t99616ad4 / b45624f4\t—\t\nUpdate images…"
+        }
+      ],
+      "children": [
+        {
+          "id": "2dee0eb9002b",
+          "x": 15,
+          "y": 762.9375,
+          "width": 1000,
+          "height": 44,
+          "cells": [
+            {
+              "x": 15,
+              "y": 762.9375,
+              "width": 290,
+              "height": 44
+            },
+            {
+              "x": 305,
+              "y": 762.9375,
+              "width": 220,
+              "height": 44
+            },
+            {
+              "x": 525,
+              "y": 762.9375,
+              "width": 190,
+              "height": 44
+            },
+            {
+              "x": 715,
+              "y": 762.9375,
+              "width": 160,
+              "height": 44
+            },
+            {
+              "x": 875,
+              "y": 762.9375,
+              "width": 140,
+              "height": 44
+            }
+          ],
+          "text": "apps-unhealthy-worker-1\n\t\nRunning · unhealthy\n\t\nbusybox:1.38.0\n\t\nsha256:fd7d…7e6e\n\t"
+        },
+        {
+          "id": "d983e84a8a0a",
+          "x": 15,
+          "y": 854.9375,
+          "width": 1000,
+          "height": 44,
+          "cells": [
+            {
+              "x": 15,
+              "y": 854.9375,
+              "width": 290,
+              "height": 44
+            },
+            {
+              "x": 305,
+              "y": 854.9375,
+              "width": 220,
+              "height": 44
+            },
+            {
+              "x": 525,
+              "y": 854.9375,
+              "width": 190,
+              "height": 44
+            },
+            {
+              "x": 715,
+              "y": 854.9375,
+              "width": 160,
+              "height": 44
+            },
+            {
+              "x": 875,
+              "y": 854.9375,
+              "width": 140,
+              "height": 44
+            }
+          ],
+          "text": "apps-welcome-web-1\n\t\nRunning · healthy\n\t\nnginx:alpine\n\t\nsha256:df22…eac2\n\t"
+        },
+        {
+          "id": "179b8b250dc3",
+          "x": 15,
+          "y": 946.9375,
+          "width": 1000,
+          "height": 44,
+          "cells": [
+            {
+              "x": 15,
+              "y": 946.9375,
+              "width": 290,
+              "height": 44
+            },
+            {
+              "x": 305,
+              "y": 946.9375,
+              "width": 220,
+              "height": 44
+            },
+            {
+              "x": 525,
+              "y": 946.9375,
+              "width": 190,
+              "height": 44
+            },
+            {
+              "x": 715,
+              "y": 946.9375,
+              "width": 160,
+              "height": 44
+            },
+            {
+              "x": 875,
+              "y": 946.9375,
+              "width": 140,
+              "height": 44
+            }
+          ],
+          "text": "infra-heartbeat-worker-1\n\t\nRunning · no health check\n\t\nbusybox:1.38.0\n\t\nsha256:fd7d…7e6e\n\t"
+        }
+      ],
+      "names": [
+        {
+          "text": "apps/broken",
+          "family": "\"DM Sans Variable\", sans-serif",
+          "size": "13px",
+          "weight": "600"
+        },
+        {
+          "text": "apps/unhealthy",
+          "family": "\"DM Sans Variable\", sans-serif",
+          "size": "13px",
+          "weight": "600"
+        },
+        {
+          "text": "apps-unhealthy-worker-1",
+          "family": "\"DM Sans Variable\", sans-serif",
+          "size": "13px",
+          "weight": "500"
+        },
+        {
+          "text": "apps/welcome",
+          "family": "\"DM Sans Variable\", sans-serif",
+          "size": "13px",
+          "weight": "600"
+        },
+        {
+          "text": "apps-welcome-web-1",
+          "family": "\"DM Sans Variable\", sans-serif",
+          "size": "13px",
+          "weight": "500"
+        },
+        {
+          "text": "infra/heartbeat",
+          "family": "\"DM Sans Variable\", sans-serif",
+          "size": "13px",
+          "weight": "600"
+        },
+        {
+          "text": "infra-heartbeat-worker-1",
+          "family": "\"DM Sans Variable\", sans-serif",
+          "size": "13px",
+          "weight": "500"
+        }
+      ],
+      "technical": [
+        {
+          "text": "99616ad4",
+          "family": "\"IBM Plex Mono\", monospace",
+          "size": "12px",
+          "weight": "400"
+        },
+        {
+          "text": "not yet",
+          "family": "\"IBM Plex Mono\", monospace",
+          "size": "12px",
+          "weight": "400"
+        },
+        {
+          "text": "99616ad4",
+          "family": "\"IBM Plex Mono\", monospace",
+          "size": "12px",
+          "weight": "400"
+        },
+        {
+          "text": "4f5b1348",
+          "family": "\"IBM Plex Mono\", monospace",
+          "size": "12px",
+          "weight": "400"
+        },
+        {
+          "text": "sha256:fd7d…7e6e",
+          "family": "\"IBM Plex Mono\", monospace",
+          "size": "12px",
+          "weight": "400"
+        },
+        {
+          "text": "99616ad4",
+          "family": "\"IBM Plex Mono\", monospace",
+          "size": "12px",
+          "weight": "400"
+        },
+        {
+          "text": "sha256:df22…eac2",
+          "family": "\"IBM Plex Mono\", monospace",
+          "size": "12px",
+          "weight": "400"
+        },
+        {
+          "text": "99616ad4",
+          "family": "\"IBM Plex Mono\", monospace",
+          "size": "12px",
+          "weight": "400"
+        },
+        {
+          "text": "b45624f4",
+          "family": "\"IBM Plex Mono\", monospace",
+          "size": "12px",
+          "weight": "400"
+        },
+        {
+          "text": "sha256:fd7d…7e6e",
+          "family": "\"IBM Plex Mono\", monospace",
+          "size": "12px",
+          "weight": "400"
+        }
+      ],
+      "statusText": [
+        {
+          "path": "apps/broken",
+          "text": "Failed\n0 / 0 running\napps/broken deployment: Failed",
+          "aria": [
+            "Hide containers for apps/broken",
+            "Deployment: Failed",
+            "Runtime: 0 / 0 running",
+            "Desired 99616ad4abb7dd3f3c75db2f9a5145738e1dc092",
+            "Applied not yet",
+            "Repository digest applies to containers",
+            "Actions for apps/broken"
+          ]
+        },
+        {
+          "path": "apps/unhealthy",
+          "text": "Applied\n1 / 1 running · 1 unhealthy\napps/unhealthy deployment: Applied",
+          "aria": [
+            "Hide containers for apps/unhealthy",
+            "Deployment: Applied",
+            "Runtime: 1 / 1 running · 1 unhealthy",
+            "Desired 99616ad4abb7dd3f3c75db2f9a5145738e1dc092",
+            "Applied 4f5b1348f9abe93dd2de128a51ac8a0ae98cff12",
+            "Repository digest applies to containers",
+            "Actions for apps/unhealthy"
+          ]
+        },
+        {
+          "path": "apps/welcome",
+          "text": "Applied\n1 / 1 running\napps/welcome deployment: Applied",
+          "aria": [
+            "Hide containers for apps/welcome",
+            "Deployment: Applied",
+            "Runtime: 1 / 1 running",
+            "Desired 99616ad4abb7dd3f3c75db2f9a5145738e1dc092",
+            "Repository digest applies to containers",
+            "Actions for apps/welcome"
+          ]
+        },
+        {
+          "path": "infra/heartbeat",
+          "text": "Applied\n1 / 1 running\ninfra/heartbeat deployment: Applied",
+          "aria": [
+            "Hide containers for infra/heartbeat",
+            "Deployment: Applied",
+            "Runtime: 1 / 1 running",
+            "Desired 99616ad4abb7dd3f3c75db2f9a5145738e1dc092",
+            "Applied b45624f478b0507699b8a2f28d31d2e22fb106fe",
+            "Repository digest applies to containers",
+            "Actions for infra/heartbeat"
+          ]
+        }
+      ]
+    },
+    "interaction": {}
+  },
+  "errors": []
+}

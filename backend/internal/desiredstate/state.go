@@ -1,6 +1,8 @@
 package desiredstate
 
 import (
+	"crypto/sha256"
+	"encoding/json"
 	"sync"
 	"time"
 )
@@ -28,13 +30,43 @@ const (
 
 // ContainerInfo describes a single container within a stack.
 type ContainerInfo struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Service string `json:"service"`
-	State   string `json:"state"`  // running, exited, paused, restarting, dead, created
-	Health  string `json:"health"` // healthy, unhealthy, starting, none
-	Image   string `json:"image"`
-	Ports   string `json:"ports,omitempty"`
+	// FullID and ComposeProject are server-enumerated scope, never browser inputs.
+	FullID         string         `json:"-"`
+	ComposeProject string         `json:"-"`
+	ID             string         `json:"id"`
+	Name           string         `json:"name"`
+	Service        string         `json:"service"`
+	State          string         `json:"state"`  // running, exited, paused, restarting, dead, created
+	Health         string         `json:"health"` // healthy, unhealthy, starting, none
+	Image          string         `json:"image"`
+	Ports          string         `json:"ports,omitempty"`
+	ImageIdentity  *ImageIdentity `json:"imageIdentity,omitempty"`
+}
+
+// ImageIdentity contains only local, whitelisted identity metadata, not raw inspect data.
+type ImageIdentity struct {
+	Status                    string             `json:"status"`
+	ObservedAt                time.Time          `json:"observedAt"`
+	Source                    string             `json:"source"`
+	ImageID                   string             `json:"imageId,omitempty"`
+	Reference                 string             `json:"reference"`
+	Platform                  *ImagePlatform     `json:"platform,omitempty"`
+	RepositoryDigests         []RepositoryDigest `json:"repositoryDigests"`
+	PreferredRepositoryDigest *RepositoryDigest  `json:"preferredRepositoryDigest,omitempty"`
+	Reason                    string             `json:"reason,omitempty"`
+	Freshness                 string             `json:"freshness"`
+}
+
+type ImagePlatform struct {
+	OS           string `json:"os"`
+	Architecture string `json:"architecture"`
+	Variant      string `json:"variant,omitempty"`
+}
+
+type RepositoryDigest struct {
+	Repository string `json:"repository"`
+	Digest     string `json:"digest"`
+	Kind       string `json:"kind"`
 }
 
 // StackRecord represents a stack discovered in the repository.
@@ -79,8 +111,32 @@ type Snapshot struct {
 
 // Store provides thread-safe access to the desired state snapshot.
 type Store struct {
-	mu       sync.RWMutex
-	snapshot *Snapshot
+	mu               sync.RWMutex
+	snapshot         *Snapshot
+	runtimeRevision  uint64
+	runtimeStacks    []RuntimeStack
+	runtimePathBytes int
+	runtimeMaxPath   int
+}
+
+// RuntimeStack is immutable observation scope metadata, never Compose payload.
+type RuntimeStack struct {
+	Path      string
+	Signature [sha256.Size]byte
+}
+
+// RuntimeStacks only allocates after a desired-state replacement. Cache hits
+// check a scalar under the store lock and never copy/hash Compose content.
+func (s *Store) RuntimeStacks(since uint64, maxStacks, maxPathBytes, maxPathLength int) (uint64, []RuntimeStack, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.runtimeStacks) > maxStacks || s.runtimePathBytes > maxPathBytes || s.runtimeMaxPath > maxPathLength {
+		return s.runtimeRevision, nil, false
+	}
+	if since == s.runtimeRevision {
+		return s.runtimeRevision, nil, true
+	}
+	return s.runtimeRevision, append([]RuntimeStack{}, s.runtimeStacks...), true
 }
 
 // NewStore creates an empty Store.
@@ -112,6 +168,20 @@ func (s *Store) Set(snap *Snapshot) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.snapshot = snap
+	s.runtimeRevision++
+	s.runtimeStacks = nil
+	s.runtimePathBytes, s.runtimeMaxPath = 0, 0
+	if snap != nil {
+		s.runtimeStacks = make([]RuntimeStack, 0, len(snap.Stacks))
+		for _, stack := range snap.Stacks {
+			s.runtimePathBytes += len(stack.Path)
+			s.runtimeMaxPath = max(s.runtimeMaxPath, len(stack.Path))
+			// Content is excluded by the StackRecord JSON contract. No payload
+			// copy occurs, and hashing happens once at write time, not per reader.
+			encoded, _ := json.Marshal(stack)
+			s.runtimeStacks = append(s.runtimeStacks, RuntimeStack{stack.Path, sha256.Sum256(encoded)})
+		}
+	}
 }
 
 // UpdateStatus updates the refresh status and optionally the error message.

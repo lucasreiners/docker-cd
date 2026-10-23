@@ -2,7 +2,9 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -142,11 +144,11 @@ func TestNewSchedulerService_NilDependencies(t *testing.T) {
 // Mock CommandRunner for testing Docker client
 
 type mockRunner struct {
-	pullDelay     time.Duration     // copied to mockDockerAPI
-	pullError     error             // copied to mockDockerAPI
-	imageDigests  map[string]string // image name -> digest (copied to mockDockerAPI)
-	inspectError  error             // error for inspect (copied to mockDockerAPI)
-	pruneError    error             // copied to mockDockerAPI
+	pullDelay    time.Duration     // copied to mockDockerAPI
+	pullError    error             // copied to mockDockerAPI
+	imageDigests map[string]string // image name -> digest (copied to mockDockerAPI)
+	inspectError error             // error for inspect (copied to mockDockerAPI)
+	pruneError   error             // copied to mockDockerAPI
 }
 
 // Helper function to create a minimal reconciler for testing
@@ -282,9 +284,7 @@ func TestTriggerUpdateCycle_Success(t *testing.T) {
 		}},
 	})
 
-	mockRun := &mockRunner{
-		
-	}
+	mockRun := &mockRunner{}
 	api := newMockAPIFromRunner(mockRun)
 	dockerClient := docker.NewClient(api)
 	broadcaster := desiredstate.NewBroadcaster()
@@ -500,6 +500,88 @@ func TestExecuteUpdateCycle_SkipFailedStacks(t *testing.T) {
 
 	if cycle.StacksProcessed != 1 {
 		t.Errorf("Expected 1 stack processed, got %d", cycle.StacksProcessed)
+	}
+}
+
+func TestSchedulerWorkPullAttemptsAndPruneKeepOneRoot(t *testing.T) {
+	for _, failed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("pull failure=%t", failed), func(t *testing.T) {
+			store := desiredstate.NewStore()
+			store.Set(&desiredstate.Snapshot{Revision: "rev", Stacks: []desiredstate.StackRecord{
+				{Path: "skip", Status: desiredstate.StackSyncFailed},
+				{Path: "one/web", Content: []byte("services:\n  web:\n    image: nginx\n")},
+				{Path: "two/web", Content: []byte("services:\n  web:\n    image: nginx\n")},
+			}})
+			api := &mockDockerAPI{}
+			if failed {
+				api.pullError = errors.New("password=secret")
+			}
+			b := desiredstate.NewBroadcaster()
+			sub := b.Subscribe()
+			defer b.Unsubscribe(sub)
+			svc, err := NewSchedulerService(config.Config{UpdaterEnabled: true, UpdaterCron: "0 3 * * *"}, slog.Default(), store, docker.NewClient(api), newTestReconciler(store), b)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cycle := NewUpdateCycle()
+			svc.executeUpdateCycle(context.Background(), cycle)
+			select {
+			case <-sub.Done():
+				t.Fatal("small cycle overflowed subscription")
+			default:
+			}
+			roots, runs, attempts := map[string]bool{}, map[string]bool{}, map[string]bool{}
+			pullTerminals, pruneTerminals := 0, 0
+			for len(sub.Events) > 0 {
+				event := <-sub.Events
+				if event.Type != desiredstate.EventWorkUpsert {
+					continue
+				}
+				var up desiredstate.WorkUpsert
+				if err := json.Unmarshal([]byte(event.Data), &up); err != nil {
+					t.Fatal(err)
+				}
+				if up.Run == nil {
+					continue
+				}
+				run := up.Run
+				roots[run.RootOperationID] = true
+				runs[run.RunID] = true
+				if run.CycleID != cycle.CycleID {
+					t.Fatal("cycle context lost")
+				}
+				for _, img := range run.Images {
+					attempts[img.PullAttemptID] = true
+				}
+				if run.Phase != "finished" {
+					continue
+				}
+				if run.Stack != "" {
+					pullTerminals++
+					expected := "completed"
+					if failed {
+						expected = "failed"
+					}
+					if run.Status != expected {
+						t.Fatal("wrong pull outcome")
+					}
+				} else {
+					pruneTerminals++
+					if run.StackResults == nil || run.StackResults.Processed != 2 || run.StackResults.Skipped != 1 || run.StackResults.OutcomeCount != 3 {
+						t.Fatalf("bad stack results: %+v", run.StackResults)
+					}
+					if failed && run.StackResults.Failed != 2 {
+						t.Fatal("failure count lost")
+					}
+				}
+			}
+			if len(roots) != 1 || len(runs) != 3 || len(attempts) != 2 || pullTerminals != 2 || pruneTerminals != 1 {
+				t.Fatalf("bad identities/grouping: roots=%d runs=%d attempts=%d pulls=%d prune=%d", len(roots), len(runs), len(attempts), pullTerminals, pruneTerminals)
+			}
+			if api.pullCalls != 2 || api.pruneCalls != 1 {
+				t.Fatal("scheduler execution semantics changed")
+			}
+		})
 	}
 }
 
@@ -850,8 +932,8 @@ func TestUpdateStack_DigestComparison_InspectFailure(t *testing.T) {
 	})
 
 	mockRun := &mockRunner{
-		
-		inspectError:  errors.New("inspect failed"),
+
+		inspectError: errors.New("inspect failed"),
 	}
 
 	dockerClient := docker.NewClient(newMockAPIFromRunner(mockRun))
@@ -962,7 +1044,7 @@ func TestCancelActiveUpdate_CancelsRunningCycle(t *testing.T) {
 	})
 
 	inner := &mockRunner{
-		imageDigests:  map[string]string{"nginx": "sha256:aaa"},
+		imageDigests: map[string]string{"nginx": "sha256:aaa"},
 	}
 	blockingAPI := &blockingMockAPI{
 		mockDockerAPI: mockDockerAPI{
