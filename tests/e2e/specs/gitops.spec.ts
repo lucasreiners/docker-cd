@@ -253,7 +253,7 @@ test('operational workspace follows real DinD work, reconnects, observations and
       const sections = page.getByRole('navigation', { name: 'Stack sections' })
       await sections.getByRole('link', { name: 'Containers', exact: true }).click()
       const [before] = await containers(request)
-      await expect(page.locator('.container-card')).toContainText('web-v2')
+      await expect(page.locator('.container-card .cell-subtitle')).toHaveText(['web-v2'])
       const second = await context.newPage()
       try {
         await second.goto('/stacks')
@@ -264,9 +264,11 @@ test('operational workspace follows real DinD work, reconnects, observations and
         // mask a missing shared-runtime terminal invalidation. Returning a tab
         // to the foreground is a real supported observation trigger.
         await page.bringToFront()
-        await expect(page.locator('.container-card')).toHaveCount(1)
-        await expect(page.locator('.container-card')).toContainText('web-v3')
-        await expect(page.locator('.container-card')).not.toContainText('web-v2')
+        // One card can still be the old container; replacement may briefly
+        // expose both. Retry the complete final collection instead of using a
+        // strict single-element locator between independently sampled states.
+        await expect(page.locator('.container-card')).toHaveText([/web-v3/])
+        await expect(page.locator('.container-card .cell-subtitle')).toHaveText(['web-v3'])
         await second.bringToFront()
         await expect(stack(second, 'apps/web')).toContainText('web-v3')
         const [after] = await containers(request)
