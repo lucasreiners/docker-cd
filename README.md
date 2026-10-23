@@ -4,28 +4,31 @@ ArgoCD, but for Docker. A GitOps continuous delivery agent for Docker Compose en
 
 ## Configuration
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `GIT_REPO_URL` | yes | — | HTTPS Git repository URL |
-| `GIT_ACCESS_TOKEN` | yes | — | Read-only access token |
-| `GIT_REVISION` | yes | — | Branch, tag, or ref to deploy |
-| `GIT_DEPLOY_DIR` | no | `/` (repo root) | Subdirectory within the repo |
-| `PORT` | no | `8080` | HTTP listen port |
-| `PROJECT_NAME` | no | `Docker-CD` | Name shown in status page |
-| `WEBHOOK_SECRET` | no | — | HMAC-SHA256 secret for GitHub webhook verification |
-| `REFRESH_POLL_INTERVAL` | no | — | Periodic refresh interval (e.g. `5m`, `30s`). Disabled if empty |
-| `RECONCILE_ENABLED` | no | `true` | Enable/disable stack reconciliation |
-| `RECONCILE_REMOVE_ENABLED` | no | `false` | Allow removal of stacks deleted from desired state |
-| `DRIFT_POLICY` | no | `revert` | Drift handling: `revert` (auto-fix) or `flag` (require ack) |
-| `UPDATER_ENABLED` | no | `false` | Enable/disable scheduled image updates |
-| `UPDATER_CRON` | no | `0 3 * * *` | Cron expression for update schedule (default: 3 AM UTC daily) |
-| `DATA_DIR` | no | `/data` | Persistent operation-history directory; mount a writable volume here |
+| Variable                   | Required | Default         | Description                                                          |
+|----------------------------|----------|-----------------|----------------------------------------------------------------------|
+| `GIT_REPO_URL`             | yes      | —               | HTTPS Git repository URL                                             |
+| `GIT_ACCESS_TOKEN`         | yes      | —               | Read-only access token                                               |
+| `GIT_REVISION`             | yes      | —               | Branch, tag, or ref to deploy                                        |
+| `GIT_DEPLOY_DIR`           | no       | `/` (repo root) | Subdirectory within the repo                                         |
+| `PORT`                     | no       | `8080`          | HTTP listen port                                                     |
+| `PROJECT_NAME`             | no       | `Docker-CD`     | Name shown in status page                                            |
+| `WEBHOOK_SECRET`           | no       | —               | HMAC-SHA256 secret for GitHub webhook verification                   |
+| `REFRESH_POLL_INTERVAL`    | no       | —               | Periodic refresh interval (e.g. `5m`, `30s`). Disabled if empty      |
+| `RECONCILE_ENABLED`        | no       | `true`          | Enable/disable stack reconciliation                                  |
+| `RECONCILE_REMOVE_ENABLED` | no       | `false`         | Allow removal of stacks deleted from desired state                   |
+| `DRIFT_POLICY`             | no       | `revert`        | Drift handling: `revert` (auto-fix) or `flag` (require ack)          |
+| `UPDATER_ENABLED`          | no       | `false`         | Enable/disable scheduled image updates                               |
+| `UPDATER_CRON`             | no       | `0 3 * * *`     | Cron expression for update schedule (default: 3 AM UTC daily)        |
+| `DATA_DIR`                 | no       | `/data`         | Persistent operation-history directory; mount a writable volume here |
 
-The service validates repository access on startup and exits immediately if any required variable is missing or credentials are invalid.
+The service validates repository access on startup and exits immediately if any required variable is missing or
+credentials are invalid.
 
 ### Webhook Setup
 
-Configure a GitHub webhook pointing to `https://your-host/api/webhook` with content type `application/json`. Set the same secret in both GitHub and the `WEBHOOK_SECRET` environment variable. If no secret is configured, all webhook requests are accepted without signature validation.
+Configure a GitHub webhook pointing to `https://your-host/api/webhook` with content type `application/json`. Set the
+same secret in both GitHub and the `WEBHOOK_SECRET` environment variable. If no secret is configured, all webhook
+requests are accepted without signature validation.
 
 ### Scheduled Updates
 
@@ -43,7 +46,8 @@ export UPDATER_ENABLED=true
 export UPDATER_CRON="0 3 * * *"  # 3 AM UTC daily (default)
 ```
 
-The updater is disabled by default. Update cycles run sequentially to avoid resource contention, and the service gracefully waits for active cycles to complete during shutdown.
+The updater is disabled by default. Update cycles run sequentially to avoid resource contention, and the service
+gracefully waits for active cycles to complete during shutdown.
 
 Stack discovery recursively scans subdirectories of `GIT_DEPLOY_DIR`. Supported
 filenames are `docker-compose.yml`, `docker-compose.yaml`, `compose.yaml`, and
