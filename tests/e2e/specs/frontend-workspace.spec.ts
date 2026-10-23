@@ -118,7 +118,7 @@ for (const width of [1440, 320]) test(`native inventory table geometry and visua
   const copy = page.getByRole('button', { name: /Copy repository digest for/ }).first()
   await copy.click()
   expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/^sha256:[a-f0-9]{64}$/)
-  const directory = resolve('../../.lead/_adhoc/stacks-table-visual')
+  const directory = info.outputPath('table-visual')
   await mkdir(directory, { recursive: true })
   await page.locator('.inventory-table-scroll').evaluate(element => { element.scrollLeft = 0 })
   await page.screenshot({ path: resolve(directory, `after-fixture-${width}.png`), fullPage: true, animations: 'disabled' })
