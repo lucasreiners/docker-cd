@@ -4,28 +4,31 @@ ArgoCD, but for Docker. A GitOps continuous delivery agent for Docker Compose en
 
 ## Configuration
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `GIT_REPO_URL` | yes | — | HTTPS Git repository URL |
-| `GIT_ACCESS_TOKEN` | yes | — | Read-only access token |
-| `GIT_REVISION` | yes | — | Branch, tag, or ref to deploy |
-| `GIT_DEPLOY_DIR` | no | `/` (repo root) | Subdirectory within the repo |
-| `PORT` | no | `8080` | HTTP listen port |
-| `PROJECT_NAME` | no | `Docker-CD` | Name shown in status page |
-| `WEBHOOK_SECRET` | no | — | HMAC-SHA256 secret for GitHub webhook verification |
-| `REFRESH_POLL_INTERVAL` | no | — | Periodic refresh interval (e.g. `5m`, `30s`). Disabled if empty |
-| `RECONCILE_ENABLED` | no | `true` | Enable/disable stack reconciliation |
-| `RECONCILE_REMOVE_ENABLED` | no | `false` | Allow removal of stacks deleted from desired state |
-| `DRIFT_POLICY` | no | `revert` | Drift handling: `revert` (auto-fix) or `flag` (require ack) |
-| `UPDATER_ENABLED` | no | `false` | Enable/disable scheduled image updates |
-| `UPDATER_CRON` | no | `0 3 * * *` | Cron expression for update schedule (default: 3 AM UTC daily) |
-| `DATA_DIR` | no | `/data` | Persistent operation-history directory; mount a writable volume here |
+| Variable                   | Required | Default         | Description                                                          |
+|----------------------------|----------|-----------------|----------------------------------------------------------------------|
+| `GIT_REPO_URL`             | yes      | —               | HTTPS Git repository URL                                             |
+| `GIT_ACCESS_TOKEN`         | yes      | —               | Read-only access token                                               |
+| `GIT_REVISION`             | yes      | —               | Branch, tag, or ref to deploy                                        |
+| `GIT_DEPLOY_DIR`           | no       | `/` (repo root) | Subdirectory within the repo                                         |
+| `PORT`                     | no       | `8080`          | HTTP listen port                                                     |
+| `PROJECT_NAME`             | no       | `Docker-CD`     | Name shown in status page                                            |
+| `WEBHOOK_SECRET`           | no       | —               | HMAC-SHA256 secret for GitHub webhook verification                   |
+| `REFRESH_POLL_INTERVAL`    | no       | —               | Periodic refresh interval (e.g. `5m`, `30s`). Disabled if empty      |
+| `RECONCILE_ENABLED`        | no       | `true`          | Enable/disable stack reconciliation                                  |
+| `RECONCILE_REMOVE_ENABLED` | no       | `false`         | Allow removal of stacks deleted from desired state                   |
+| `DRIFT_POLICY`             | no       | `revert`        | Drift handling: `revert` (auto-fix) or `flag` (require ack)          |
+| `UPDATER_ENABLED`          | no       | `false`         | Enable/disable scheduled image updates                               |
+| `UPDATER_CRON`             | no       | `0 3 * * *`     | Cron expression for update schedule (default: 3 AM UTC daily)        |
+| `DATA_DIR`                 | no       | `/data`         | Persistent operation-history directory; mount a writable volume here |
 
-The service validates repository access on startup and exits immediately if any required variable is missing or credentials are invalid.
+The service validates repository access on startup and exits immediately if any required variable is missing or
+credentials are invalid.
 
 ### Webhook Setup
 
-Configure a GitHub webhook pointing to `https://your-host/api/webhook` with content type `application/json`. Set the same secret in both GitHub and the `WEBHOOK_SECRET` environment variable. If no secret is configured, all webhook requests are accepted without signature validation.
+Configure a GitHub webhook pointing to `https://your-host/api/webhook` with content type `application/json`. Set the
+same secret in both GitHub and the `WEBHOOK_SECRET` environment variable. If no secret is configured, all webhook
+requests are accepted without signature validation.
 
 ### Scheduled Updates
 
@@ -43,7 +46,8 @@ export UPDATER_ENABLED=true
 export UPDATER_CRON="0 3 * * *"  # 3 AM UTC daily (default)
 ```
 
-The updater is disabled by default. Update cycles run sequentially to avoid resource contention, and the service gracefully waits for active cycles to complete during shutdown.
+The updater is disabled by default. Update cycles run sequentially to avoid resource contention, and the service
+gracefully waits for active cycles to complete during shutdown.
 
 Stack discovery recursively scans subdirectories of `GIT_DEPLOY_DIR`. Supported
 filenames are `docker-compose.yml`, `docker-compose.yaml`, `compose.yaml`, and
@@ -149,11 +153,34 @@ The shared Verify workflow runs both new suites on pull requests and releases.
 
 ### Administration console
 
-The Vue administration console has five workspaces: **Overview, Stacks,
-Operations, Repository, and System**. It includes a collapsible sidebar, command
-search (Cmd/Ctrl+K), grouped resource tables, saved views and column preferences,
-tabbed stack details, read-only Compose source, container inspectors, and a global
-operation drawer. Themes and table density are stored in the browser.
+The Vue administration console opens on **Stacks**, with **Operations,
+Repository, and System** available for investigation. Stacks shows nested runtime
+containers, two previews per stack, bounded expansion, and filters/search across
+stacks, containers and image identities. Instance-wide actions stay independent of
+inventory filters. A compact work section and inline stack progress show running
+checks, image pulls and deployments; the header Work control remains available
+when navigating elsewhere. Parent and child operations share a workflow rather
+than appearing as duplicate jobs.
+
+Runtime observations refresh automatically while the page is visible, on return
+and reconnect, and after relevant work. Polling is every 15 seconds, but backend
+caching and observation cost affect the actual observation interval. The UI shows
+observation age and retains dated data on failures; a live connection does not
+prove current runtime health. Layer download/extraction progress is phase-local,
+not a percentage of the whole deployment.
+
+Container rows prefer repository digests over container IDs. Identity is inspected
+from the exact running container's immutable image, not from its mutable tag.
+Local builds and daemon metadata loss can make repository digests unavailable;
+digest kind may be unknown. **Registry freshness is not checked** by this view.
+Remote checks and outdated-image indicators are tracked separately in
+[issue #44](https://github.com/lucasreiners/docker-cd/issues/44). Technical image and
+container IDs remain in the inspector. An open inspector retains its dated image
+selection and explains later identity changes or missing metadata.
+
+The console retains command search (Cmd/Ctrl+K), nested stack deep links, tabbed
+details, read-only Compose source and operation inspection. Theme and density
+preferences are stored in the browser; Browser Back restores inventory context.
 
 The Configuration tab compares the desired Compose file with the source captured
 at the last successful deployment. Applied source snapshots are stored alongside
@@ -173,10 +200,19 @@ container replacement. Storage failures are reported in the console.
 
 Stack actions apply the reviewed Git revision, enforce refresh readiness and
 reconciliation policy, and run independently of the HTTP connection. Pending drift
-has an explicit acknowledgement action. Per-stack image updates apply only that
-stack and do not perform the instance-wide prune stage. Agent configuration is
-read-only in System; edit the deployment environment to change it. The schedule
-page reports the effective scheduler timezone rather than assuming browser time.
+requires reviewing the source comparison before approval of that exact revision.
+Per-stack image updates apply only that stack and do not prune images or force
+recreation of unchanged containers. **Update all stacks** includes pruning unused
+images across the Docker endpoint, including images outside managed stacks; the
+confirmation explicitly discloses this scope. **Check Git for changes** can
+interrupt active work and then apply configured reconciliation/removal policy—it
+is not a read-only runtime refresh. No action is automatically replayed after an
+uncertain network response.
+
+Agent configuration is read-only in System; edit the deployment environment to
+change it. Operations reports the effective scheduler timezone rather than
+assuming browser time. Console APIs must remain behind an authenticated reverse
+proxy or a restricted network; UI capability flags are not authorization.
 
 The UI uses MIT-licensed **PrimeVue 4.5.5** and **@primeuix/themes 2.0.3**, pinned
 because the newer major releases use a different licensing model.

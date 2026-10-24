@@ -49,6 +49,7 @@ type Harness struct {
 	Queue       *refresh.Queue
 	Router      *gin.Engine
 	Client      *docker.Client
+	api         *dind.AuthenticatedClient
 	Gate        *Gate
 	SlowPull    *SlowPull
 	Revision    string
@@ -94,13 +95,14 @@ func New(ctx context.Context) (_ *Harness, err error) {
 	if err != nil {
 		return nil, err
 	}
-	api, err := docker.NewSDKClient(h.Env.DockerHost)
+	api, err := dind.NewSDKClient(h.Env.DockerHost)
 	if err != nil {
 		return nil, err
 	}
-	h.Client = docker.NewClient(api)
+	h.api = api
+	warmClient := docker.NewClient(api)
 	// Warm the private daemon once; assertions do not depend on registry latency.
-	if err = h.Client.PullImages(startup, []string{Image}, nil); err != nil {
+	if err = warmClient.PullImages(startup, []string{Image}, nil); err != nil {
 		return nil, err
 	}
 	h.SlowPull = &SlowPull{DockerAPI: api}
@@ -148,6 +150,9 @@ func (h *Harness) Close() {
 		_ = h.updater.Stop(ctx)
 	}
 	h.wg.Wait()
+	if h.api != nil {
+		_ = h.api.Close()
+	}
 	if h.Env != nil {
 		h.Env.Cleanup()
 	}

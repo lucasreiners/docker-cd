@@ -6,13 +6,13 @@
   >
     <a class="skip-link button" href="#main-content">Skip to content</a>
     <aside class="sidebar desktop-sidebar" aria-label="Main navigation">
-      <router-link to="/" class="admin-brand" aria-label="Docker-CD overview"
+      <router-link to="/stacks" class="admin-brand" aria-label="Docker-CD stacks"
         ><Boxes :size="25" /><span>Docker <b>/ CD</b></span></router-link
       >
       <nav>
         <p class="nav-section">Workspace</p>
         <router-link
-          v-for="item in navigation.slice(0, 3)"
+          v-for="item in navigation.slice(0, 2)"
           :key="item.path"
           :to="item.path"
           :class="{ 'nav-active': activePath(item.path) }"
@@ -22,13 +22,13 @@
             attention
           }}</small
           ><small
-            v-if="item.path === '/operations' && consoleStore.active.length"
-            >{{ consoleStore.active.length }}</small
+            v-if="item.path === '/operations' && workflowCount"
+            >{{ workflowCount }}</small
           ></router-link
         >
         <p class="nav-section">Administration</p>
         <router-link
-          v-for="item in navigation.slice(3)"
+          v-for="item in navigation.slice(2)"
           :key="item.path"
           :to="item.path"
           :class="{ 'nav-active': activePath(item.path) }"
@@ -75,7 +75,7 @@
           >
             <Search :size="15" /><span>Search workspace</span
             ><kbd>⌘ K</kbd></button
-          ><ConnectionBanner /><ThemeToggle />
+          ><button class="button header-work" aria-label="Open instance work" @click="workOpen = true">Work <span>{{ workflowCount }}</span></button><ConnectionBanner /><ThemeToggle />
         </div>
       </header>
       <main id="main-content" class="admin-content" tabindex="-1">
@@ -99,35 +99,13 @@
         </div>
         <router-view />
       </main>
-      <div
-        v-if="
-          store.pullProgress || store.isUpdating || consoleStore.active.length
-        "
-        class="active-operation-bar"
-      >
-        <LoaderCircle :size="15" /><span>{{
-          store.updateProgress?.message ||
-          `${consoleStore.active.length} operations running`
-        }}</span
-        ><router-link to="/operations"
-          >View operations <ArrowRight :size="13" /></router-link
-        ><button
-          v-if="consoleStore.active[0]"
-          class="text-link"
-          @click="consoleStore.inspect(consoleStore.active[0].id)"
-        >
-          Inspect
-        </button>
-      </div>
-      <footer class="admin-footer">
-        <span>Docker-CD · GitOps for Compose</span
-        ><span>{{
-          consoleStore.instance?.repository.ref ||
-          store.refreshStatus?.ref ||
-          "Waiting for repository"
-        }}</span>
-      </footer>
     </div>
+    <Drawer
+      v-model:visible="workOpen"
+      header="Instance work"
+      position="right"
+      style="width: min(620px, 100vw)"
+    ><ActiveWork /><router-link class="button" to="/operations" @click="workOpen = false">Open operations history</router-link></Drawer>
     <Drawer
       v-model:visible="mobileNavigation"
       header="Docker / CD"
@@ -193,15 +171,12 @@
 </template>
 <script setup lang="ts">
 import {
-  ArrowRight,
   ArrowUpRight,
   Boxes,
   ChevronRight,
   GitBranch,
   Layers,
-  LayoutDashboard,
   ListChecks,
-  LoaderCircle,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
@@ -212,9 +187,11 @@ import Dialog from 'primevue/dialog'
 import Drawer from 'primevue/drawer'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import ActiveWork from './components/ActiveWork.vue'
 import ConnectionBanner from './components/ConnectionBanner.vue'
 import OperationDetails from './components/OperationDetails.vue'
 import ThemeToggle from './components/ThemeToggle.vue'
+import { useWorkflowGroups } from './composables/useWorkflowGroups'
 import { useConsoleStore } from './store/console'
 import { useStacksStore } from './store/stacks'
 import { needsAttention } from './utils/stackState'
@@ -223,15 +200,17 @@ const consoleStore = useConsoleStore(),
   store = useStacksStore(),
   route = useRoute()
 const searchOpen = ref(false),
+  workOpen = ref(false),
   mobileNavigation = ref(false),
   search = ref('')
 const navigation = [
-  { path: '/', label: 'Overview', icon: LayoutDashboard },
   { path: '/stacks', label: 'Stacks', icon: Layers },
   { path: '/operations', label: 'Operations', icon: ListChecks },
   { path: '/repository', label: 'Repository', icon: GitBranch },
   { path: '/system', label: 'System', icon: Settings2 },
 ]
+const workflows = useWorkflowGroups()
+const workflowCount = computed(() => workflows.value.length)
 const activePath = (path: string) =>
   path === '/' ? route.path === '/' : route.path.startsWith(path)
 const pageTitle = computed(
@@ -260,7 +239,6 @@ function keydown(event: KeyboardEvent) {
     searchOpen.value = !searchOpen.value
   }
 }
-let timer: ReturnType<typeof setInterval>
 let operationFocus: HTMLElement | null = null
 let previousOperation = ''
 watch(
@@ -279,12 +257,10 @@ function restoreOperationFocus() {
     : document.querySelector<HTMLElement>(`[data-operation-id="${CSS.escape(previousOperation)}"]`)
   target?.focus()
 }
-let runtimeTimer: ReturnType<typeof setTimeout>
 watch(
   () => store.stacks,
   () => {
-    clearTimeout(runtimeTimer)
-    runtimeTimer = setTimeout(() => consoleStore.loadRuntime(), 300)
+    consoleStore.refreshRuntime()
   },
 )
 watch(
@@ -297,21 +273,20 @@ watch(
 onMounted(async () => {
   window.addEventListener('keydown', keydown)
   store.connectSSE(consoleStore.onOperation, () => {
+    consoleStore.loadInstance()
     consoleStore.loadOperations()
-    consoleStore.loadRuntime()
+    consoleStore.refreshRuntime(true)
   })
-  await Promise.all([store.loadInitial(), consoleStore.reload()])
-  timer = setInterval(() => {
-    if (document.visibilityState === 'visible') {
-      consoleStore.loadRuntime()
-      consoleStore.loadInstance()
-    }
-  }, 15000)
+  consoleStore.startRuntimePolling(consoleStore.loadInstance)
+  await Promise.all([
+    store.loadInitial(),
+    consoleStore.loadInstance(),
+    consoleStore.loadOperations(),
+  ])
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', keydown)
-  clearInterval(timer)
-  clearTimeout(runtimeTimer)
+  consoleStore.stopRuntimePolling()
   store.disconnectSSE()
 })
 </script>

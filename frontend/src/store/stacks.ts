@@ -6,33 +6,11 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import type { Operation, RefreshSnapshot, StackRecord } from '../services/api'
 import { fetchRefreshStatus, fetchStacks } from '../services/api'
-import type { ActivityEntry, UpdateProgress } from '../services/progress'
+import type { UpdateProgress } from '../services/progress'
 import type { ConnectionState } from '../services/sse'
 import { SSEClient } from '../services/sse'
-
-export interface ImagePullStatus {
-  image: string
-  status: string
-  progress: string
-  done: boolean
-  layers: LayerPullStatus[]
-}
-
-export interface LayerPullStatus {
-  id: string
-  status: string
-  progress: string
-  bytesCurrent: number
-  bytesTotal: number
-  done: boolean
-}
-
-export interface PullProgressState {
-  stack: string
-  images: ImagePullStatus[]
-  current: number
-  total: number
-}
+import { useConsoleStore } from './console'
+import { useWorkStore } from './work'
 
 export const useStacksStore = defineStore('stacks', () => {
   // State
@@ -43,14 +21,9 @@ export const useStacksStore = defineStore('stacks', () => {
   const searchQuery = ref<string>('')
   const loading = ref(false)
   const error = ref<string | null>(null)
-  const updateProgress = ref<UpdateProgress | null>(null)
-  const activity = ref<ActivityEntry[]>([])
-  let activityId = 0
   const isUpdating = ref(false)
-  const pullProgress = ref<PullProgressState | null>(null)
 
   let sseClient: SSEClient | null = null
-  let progressTimer: ReturnType<typeof setTimeout> | null = null
   let stackVersion = 0
   let refreshVersion = 0
 
@@ -113,52 +86,73 @@ export const useStacksStore = defineStore('stacks', () => {
   }
 
   function connectSSE(onOperation?: (operation: Operation) => void, onConnected?: () => void) {
+    const work = useWorkStore()
+    const consoleStore = useConsoleStore()
+    work.connectionChanged('disconnected')
     if (sseClient) {
       sseClient.close()
     }
 
     sseClient = new SSEClient({
-      onOperation,
+      onOperation(operation) {
+        work.onHistory(operation)
+        onOperation?.(operation)
+        if (operation.status !== 'running') consoleStore.refreshRuntime()
+      },
+      onWorkSnapshot(event) {
+        if (!work.snapshot(event) && work.invalidReason) sseClient?.connect()
+      },
+      onWorkUpsert(event) {
+        if (
+          work.upsert(event) &&
+          ((event.run && event.run.status !== 'running') ||
+            event.operations.some((op) => op.status !== 'running'))
+        )
+          consoleStore.refreshRuntime()
+        if (work.invalidReason) sseClient?.connect()
+      },
+      onInvalidWork() {
+        work.invalidate()
+        sseClient?.connect()
+      },
       onSnapshot(records) {
+        work.legacySnapshotReceived()
         stackVersion++
         loading.value = false
         error.value = null
         stackMap.value = new Map(records.map((s) => [s.path, s]))
-        if (pullProgress.value && !records.some((s) => s.path === pullProgress.value?.stack)) {
-          pullProgress.value = null
-        }
       },
       onUpsert(record) {
         stackVersion++
         const next = new Map(stackMap.value)
         next.set(record.path, record)
         stackMap.value = next
+        consoleStore.refreshRuntime()
       },
       onDelete(path) {
         stackVersion++
         const next = new Map(stackMap.value)
         next.delete(path)
         stackMap.value = next
+        consoleStore.refreshRuntime()
       },
       onRefreshStatus(snapshot) {
         refreshVersion++
         refreshStatus.value = snapshot as RefreshSnapshot
       },
       onUpdateSnapshot(progress) {
-        if (progressTimer) clearTimeout(progressTimer)
-        updateProgress.value = null
-        pullProgress.value = null
         isUpdating.value = false
         for (const item of progress) {
           const p = item
           const terminal =
             ['completed', 'cancelled'].includes(p.type) ||
             (p.source === 'reconcile' && ['stack_success', 'stack_error'].includes(p.type))
-          if (!terminal) handleProgress(p, false)
+          if (!terminal) handleProgress(p)
         }
       },
       onUpdateProgress: handleProgress,
       onConnectionChange(state) {
+        work.connectionChanged(state)
         connectionState.value = state
         if (state === 'connected') onConnected?.()
       },
@@ -167,100 +161,25 @@ export const useStacksStore = defineStore('stacks', () => {
     sseClient.connect()
   }
 
-  function handleProgress(progress: UpdateProgress, recordActivity = true) {
-    if (progressTimer) clearTimeout(progressTimer)
-    if (recordActivity && progress.type !== 'image_pull_progress') {
-      activity.value.unshift({
-        id: ++activityId,
-        at: progress.timestamp || new Date().toISOString(),
-        stack: progress.stack,
-        message:
-          progress.error ||
-          (progress.errors
-            ? `${progress.message || 'Update completed'} · ${progress.errors} errors`
-            : progress.message) ||
-          progress.type.replace(/_/g, ' '),
-        tone:
-          progress.type === 'stack_error' || progress.errors
-            ? 'error'
-            : ['completed', 'stack_success'].includes(progress.type)
-              ? 'success'
-              : 'info',
-      })
-      activity.value = activity.value.slice(0, 50)
-    }
-    if (progress.type !== 'image_pull_progress') updateProgress.value = progress
+  function handleProgress(progress: UpdateProgress) {
+    // Older agents still gate actions on the updater cycle. Presentation uses
+    // keyed work or operation stages, never these uncorrelated layer events.
     const terminal = progress.type === 'completed' || progress.type === 'cancelled'
     if (progress.source !== 'reconcile' && progress.cycle_id) {
       isUpdating.value = !terminal
     }
     if (progress.type === 'started') {
       isUpdating.value = true
-      pullProgress.value = null
-    } else if (progress.type === 'stack_sync_started' || progress.type === 'stack_deploying') {
-      pullProgress.value = null
-    } else if (progress.type === 'image_pull_progress' && progress.image && progress.stack) {
-      const isDone =
-        progress.done === true || (!progress.layerId && progress.status === 'Pull complete')
-
-      if (!pullProgress.value || pullProgress.value.stack !== progress.stack) {
-        pullProgress.value = {
-          stack: progress.stack,
-          images: [],
-          current: progress.current ?? 0,
-          total: progress.total ?? 0,
-        }
-      }
-
-      let existing = pullProgress.value.images.find((i) => i.image === progress.image)
-      if (!existing) {
-        existing = {
-          image: progress.image,
-          status: 'Pulling',
-          progress: '',
-          done: false,
-          layers: [],
-        }
-        pullProgress.value.images.push(existing)
-        existing = pullProgress.value.images[pullProgress.value.images.length - 1]
-      }
-      if (progress.layerId) {
-        const layer: LayerPullStatus = {
-          id: progress.layerId,
-          status: progress.status ?? '',
-          progress: progress.progress ?? '',
-          bytesCurrent: progress.bytesCurrent ?? 0,
-          bytesTotal: progress.bytesTotal ?? 0,
-          done: progress.status === 'Pull complete' || progress.status === 'Already exists',
-        }
-        const index = existing.layers.findIndex((l) => l.id === layer.id)
-        if (index < 0) existing.layers.push(layer)
-        else existing.layers[index] = layer
-      } else {
-        existing.status = progress.status ?? ''
-        existing.progress = progress.progress ?? ''
-        existing.done = isDone
-      }
-      pullProgress.value.current = progress.current ?? 0
-      pullProgress.value.total = progress.total ?? 0
-    } else if (progress.type === 'stack_success' || progress.type === 'stack_error' || terminal) {
-      if (terminal || pullProgress.value?.stack === progress.stack) pullProgress.value = null
-      if (terminal) {
-        isUpdating.value = false
-      }
-      if (terminal || (progress.source === 'reconcile' && !isUpdating.value)) {
-        // Clear progress after a short delay to show completion message
-        progressTimer = setTimeout(() => {
-          updateProgress.value = null
-        }, 3000)
-      }
+    } else if (terminal) {
+      // Legacy updater lifecycle is independent of individual stack outcomes.
+      isUpdating.value = false
     }
   }
 
   function disconnectSSE() {
-    if (progressTimer) clearTimeout(progressTimer)
     sseClient?.close()
     sseClient = null
+    useWorkStore().connectionChanged('disconnected')
   }
 
   function setFilterStatus(status: string) {
@@ -276,7 +195,6 @@ export const useStacksStore = defineStore('stacks', () => {
   }
 
   return {
-    activity,
     // State
     stackMap,
     refreshStatus,
@@ -285,9 +203,7 @@ export const useStacksStore = defineStore('stacks', () => {
     searchQuery,
     loading,
     error,
-    updateProgress,
     isUpdating,
-    pullProgress,
     // Getters
     stacks,
     filteredStacks,

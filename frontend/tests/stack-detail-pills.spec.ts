@@ -24,17 +24,23 @@ it('renders external ports as links, internal ports as text, and a real details 
       { path: 'apps/web', composeFile: 'compose.yaml', composeHash: 'hash', status: 'synced' },
     ],
   ])
-  vi.spyOn(api, 'fetchContainers').mockResolvedValue([
-    {
-      id: 'abc123',
-      name: 'web',
-      service: 'web',
-      image: 'nginx',
-      state: 'running',
-      health: 'none',
-      ports: '8080:80/tcp, 8443:443/tcp, 5432/tcp',
+  vi.spyOn(api, 'requestJSON').mockResolvedValue({
+    'apps/web': {
+      containers: [
+        {
+          id: 'abc123',
+          name: 'web',
+          service: 'web',
+          image: 'nginx',
+          state: 'running',
+          health: 'none',
+          ports: '8080:80/tcp, 8443:443/tcp, 5432/tcp',
+        },
+      ],
+      error: null,
+      observedAt: '2026-10-23T12:00:00Z',
     },
-  ])
+  })
   await router.push('/stack/apps/web?q=web&view=grid&tab=containers')
   const wrapper = mount(StackDetail, {
     global: {

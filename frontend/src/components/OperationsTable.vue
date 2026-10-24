@@ -24,7 +24,7 @@
           </button>
           <p class="cell-subtitle">
             {{ data.stack || "Instance-wide" }}
-          </p></template
+          </p><router-link class="text-link" :to="`/operations/${encodeURIComponent(data.id)}`" :aria-label="`Open full operation ${data.id}`">Full record →</router-link></template
         ></Column
       >
       <Column header="Result"

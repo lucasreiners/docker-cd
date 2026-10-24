@@ -21,6 +21,43 @@ export interface StackRecord {
   lastSyncError?: string
 }
 
+export interface RepositoryDigest {
+  repository: string
+  digest: string
+  kind: 'index' | 'manifest' | 'unknown'
+}
+
+export type ImageIdentityReason =
+  | 'not_recorded'
+  | 'image_missing'
+  | 'container_replaced'
+  | 'inspection_denied'
+  | 'repository_ambiguous'
+  | 'unsupported'
+  | 'ownership_unverified'
+  | 'inspection_failed'
+
+interface ImageIdentityBase {
+  observedAt: string
+  source: 'container_image_inspect'
+  imageId?: string
+  reference: string
+  platform?: { os: string; architecture: string; variant?: string }
+  repositoryDigests: RepositoryDigest[]
+  freshness: 'not_checked'
+}
+
+export type ImageIdentity = ImageIdentityBase &
+  (
+    | { status: 'available'; preferredRepositoryDigest: RepositoryDigest; reason?: never }
+    | { status: 'ambiguous'; preferredRepositoryDigest?: never; reason: 'repository_ambiguous' }
+    | {
+        status: 'unavailable'
+        preferredRepositoryDigest?: never
+        reason: Exclude<ImageIdentityReason, 'repository_ambiguous'>
+      }
+  )
+
 export interface ContainerInfo {
   id: string
   name: string
@@ -29,6 +66,16 @@ export interface ContainerInfo {
   health: string
   image: string
   ports?: string
+  imageIdentity?: ImageIdentity
+}
+
+// Server observation times are not browser fetch times. Failed reads preserve
+// the previous successful containers/observedAt; null means never observed.
+export interface RuntimeObservation {
+  containers: ContainerInfo[]
+  error: string | null
+  observedAt: string | null
+  attemptedAt?: string
 }
 
 export interface RefreshSnapshot {
@@ -79,7 +126,8 @@ export async function fetchRefreshStatus(): Promise<RefreshSnapshot> {
 export async function triggerRefresh(): Promise<void> {
   const res = await fetch(`${getBaseURL()}/api/refresh`, { method: 'POST' })
   if (!res.ok) {
-    throw new Error(`Failed to trigger refresh: ${res.status}`)
+    const body = await res.json().catch(() => ({}))
+    throw new APIError(body.error || `Failed to trigger refresh: ${res.status}`, res.status)
   }
 }
 
@@ -87,15 +135,45 @@ export async function triggerUpdate(): Promise<void> {
   const res = await fetch(`${getBaseURL()}/api/update`, { method: 'POST' })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
-    throw new Error(body.error || `Failed to trigger update: ${res.status}`)
+    throw new APIError(body.error || `Failed to trigger update: ${res.status}`, res.status)
   }
+}
+
+export class APIError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message)
+  }
+}
+
+export type StackAction = 'update' | 'retry' | 'acknowledge'
+export interface ReviewedStackAction {
+  action: StackAction
+  stack: string
+  revision: string
+}
+
+export async function submitStackAction(
+  body: ReviewedStackAction,
+): Promise<{ operationId: string }> {
+  const result = await requestJSON<{ operationId: string }>('/api/operations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!result || typeof result.operationId !== 'string' || !result.operationId) {
+    throw new Error('Accepted action returned no operation identity')
+  }
+  return result
 }
 
 export async function requestJSON<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${getBaseURL()}${path}`, options)
   if (!response.ok) {
     const body = await response.json().catch(() => ({}))
-    throw new Error(body.error || `Request failed (${response.status})`)
+    throw new APIError(body.error || `Request failed (${response.status})`, response.status)
   }
   return response.json()
 }
@@ -129,6 +207,8 @@ export interface Instance {
   policies: { reconcile: boolean; remove: boolean; drift: string }
   schedule: { enabled: boolean; cron: string; timezone: string; nextRun: string }
   capabilities: {
+    liveWorkVersion?: 2
+    imageIdentity?: { version: 1; source: 'container_image_inspect' }
     logs?: boolean
     inspect: boolean
     apply: boolean

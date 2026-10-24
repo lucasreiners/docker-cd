@@ -121,6 +121,7 @@ func (s *Service) doRefresh(ctx context.Context, trigger Trigger) {
 		ctx = operations.WithID(ctx, trigger.ParentID)
 	}
 	ctx = s.broadcaster.BeginOperation(ctx, "refresh", string(trigger.Source), "", s.cfg.GitRevision)
+	workID := s.broadcaster.BeginWork(ctx, desiredstate.WorkOptions{Source: "refresh", Revision: s.cfg.GitRevision, Phase: "checking_repository"})
 	ctx = operations.WithTrigger(ctx, string(trigger.Source))
 	log.Printf("[info] starting refresh (source: %s)", trigger.Source)
 
@@ -139,6 +140,11 @@ func (s *Service) doRefresh(ctx context.Context, trigger Trigger) {
 
 	if err != nil {
 		log.Printf("[error] refresh failed: %v", err)
+		status := "failed"
+		if ctx.Err() != nil {
+			status = "cancelled"
+		}
+		s.broadcaster.EndWork(workID, status, "Repository check "+status, "")
 		s.broadcaster.EndOperation(ctx, "failed", err.Error())
 		s.store.SetRefreshState(desiredstate.RefreshStatusFailed, err.Error(), true, "refresh failed", git.DefaultLocalRepoPath)
 		if s.broadcaster != nil {
@@ -168,6 +174,7 @@ func (s *Service) doRefresh(ctx context.Context, trigger Trigger) {
 	}
 
 	s.store.Set(snap)
+	s.broadcaster.EndWork(workID, "completed", "Repository check completed", "")
 	s.broadcaster.EndOperation(ctx, "completed", "Repository checked at "+truncate(commitHash, 12))
 	log.Printf("[info] refresh completed: %d stacks at %s", len(newStacks), truncate(commitHash, 12))
 

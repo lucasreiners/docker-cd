@@ -85,7 +85,9 @@ type composePsJSON struct {
 // ComposePs lists running containers for a compose project.
 func (r *DockerComposeRunner) ComposePs(ctx context.Context, projectName string) ([]desiredstate.ContainerInfo, error) {
 	args := docker.HostArgs(r.Socket)
-	args = append(args, "compose", "-p", projectName, "ps", "-a", "--format", "json")
+	// Identity enrichment must inspect the exact immutable container ID. Compose
+	// otherwise truncates IDs even in JSON output on supported CLI versions.
+	args = append(args, "compose", "-p", projectName, "ps", "-a", "--no-trunc", "--format", "json")
 
 	out, err := r.Runner.Run(ctx, "docker", args...)
 	if err != nil {
@@ -126,13 +128,15 @@ func (r *DockerComposeRunner) ComposePs(ctx context.Context, projectName string)
 		}
 
 		containers = append(containers, desiredstate.ContainerInfo{
-			ID:      ps.ID[:12], // short ID
-			Name:    ps.Name,
-			Service: ps.Service,
-			State:   ps.State,
-			Health:  health,
-			Image:   ps.Image,
-			Ports:   strings.Join(ports, ", "),
+			ID:             ps.ID[:min(12, len(ps.ID))], // public short-ID compatibility
+			FullID:         ps.ID,
+			ComposeProject: projectName,
+			Name:           ps.Name,
+			Service:        ps.Service,
+			State:          ps.State,
+			Health:         health,
+			Image:          ps.Image,
+			Ports:          strings.Join(ports, ", "),
 		})
 	}
 

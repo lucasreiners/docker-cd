@@ -1,9 +1,15 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { describe, expect, it, vi } from 'vitest'
+import { reactive } from 'vue'
+import { useRoute } from 'vue-router'
+import { fixtureData } from '../../tests/e2e/fixtures/frontend-data'
 import StackDetail from '../src/pages/StackDetail.vue'
 import type { StackRecord } from '../src/services/api'
+import { requestJSON } from '../src/services/api'
+import { useConsoleStore } from '../src/store/console'
 import { useStacksStore } from '../src/store/stacks'
+import { useWorkStore } from '../src/store/work'
 
 // Stub naive-ui components
 const naiveStubs = {
@@ -45,16 +51,81 @@ vi.mock('vue-router', () => ({
 }))
 
 // Mock API
-vi.mock('../src/services/api', () => ({
+vi.mock('../src/services/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/api')>()),
   fetchStacks: vi.fn(),
   fetchRefreshStatus: vi.fn(),
   fetchContainers: vi.fn(() => Promise.resolve([])),
   getEventsURL: vi.fn(() => 'http://localhost:8080/api/events'),
+  requestJSON: vi.fn(),
 }))
 
 describe('StackDetail', () => {
-  it('renders stack details when stack exists', () => {
-    setActivePinia(createPinia())
+  it('grants approval only after source comparison loads and retains the loaded revision when desired state changes', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const route = reactive({ params: { path: ['apps', 'api'] }, query: { tab: 'configuration' } })
+    vi.mocked(useRoute).mockReturnValueOnce(route as unknown as ReturnType<typeof useRoute>)
+    const record: StackRecord = {
+      path: 'apps/api',
+      status: 'failed',
+      requiresAcknowledgement: true,
+      desiredRevision: 'reviewed-revision',
+      composeFile: 'compose.yaml',
+      composeHash: 'new',
+    }
+    useStacksStore().stackMap = new Map([[record.path, record]])
+    useStacksStore().refreshStatus = {
+      revision: 'reviewed-revision',
+      ref: 'main',
+      refType: 'branch',
+      refreshedAt: '',
+      refreshStatus: 'completed',
+      updatesBlocked: false,
+    }
+    useConsoleStore().instance = fixtureData().instance
+    const work = useWorkStore()
+    work.connected = true
+    work.restored = true
+    work.supported = true
+    let resolve!: (value: unknown) => void
+    vi.mocked(requestJSON).mockImplementation((url) =>
+      url.startsWith('/api/stack/configuration')
+        ? new Promise((r) => {
+            resolve = r
+          })
+        : Promise.resolve({ stacks: {} }),
+    )
+    const wrapper = mount(StackDetail, {
+      global: { plugins: [pinia], stubs: { ...naiveStubs, Drawer: true } },
+    })
+    expect(wrapper.text()).toContain('Load the source comparison before approving')
+    expect(wrapper.findAll('button').some((b) => b.text().startsWith('Approve & deploy'))).toBe(
+      false,
+    )
+    resolve({
+      revision: 'reviewed-revision',
+      content: 'services: {}',
+      applied: { revision: 'applied', content: 'services: {}' },
+    })
+    await flushPromises()
+    const approval = wrapper
+      .findAll('button')
+      .find((b) => b.text() === 'Approve & deploy reviewed-revision')
+    expect(approval).toBeDefined()
+    useStacksStore().stackMap.set(record.path, {
+      ...record,
+      desiredRevision: 'new-unreviewed-revision',
+    })
+    await flushPromises()
+    expect(approval?.attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('Desired revision changed; review the stack again')
+    expect(wrapper.text()).not.toContain('Approve & deploy new-unreviewed-revision')
+    wrapper.unmount()
+  })
+  it('renders stack details and the applied commit message when stack exists', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
     const store = useStacksStore()
     const stack: StackRecord = {
       path: 'apps/api',
@@ -74,7 +145,7 @@ describe('StackDetail', () => {
 
     const wrapper = mount(StackDetail, {
       global: {
-        plugins: [createPinia()],
+        plugins: [pinia],
         stubs: naiveStubs,
         mocks: {
           $router: { push: vi.fn() },
@@ -82,12 +153,10 @@ describe('StackDetail', () => {
       },
     })
 
-    // Re-set the store after pinia plugin creates a new one
-    const detailStore = useStacksStore()
-    detailStore.stackMap = new Map([[stack.path, stack]])
-
-    // Check that key details render
+    await flushPromises()
     expect(wrapper.text()).toContain('apps/api')
+    expect(wrapper.text()).toContain('Deploy v2.0 to production')
+    wrapper.unmount()
   })
 
   it('renders not found message when stack missing', () => {
@@ -106,8 +175,9 @@ describe('StackDetail', () => {
     expect(wrapper.text()).toContain('was not found')
   })
 
-  it('renders error details for failed stack', () => {
-    setActivePinia(createPinia())
+  it('renders error details for failed stack', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
     const store = useStacksStore()
     const stack: StackRecord = {
       path: 'apps/api',
@@ -124,7 +194,7 @@ describe('StackDetail', () => {
 
     const wrapper = mount(StackDetail, {
       global: {
-        plugins: [createPinia()],
+        plugins: [pinia],
         stubs: naiveStubs,
         mocks: {
           $router: { push: vi.fn() },
@@ -132,9 +202,9 @@ describe('StackDetail', () => {
       },
     })
 
-    const detailStore = useStacksStore()
-    detailStore.stackMap = new Map([[stack.path, stack]])
-
+    await flushPromises()
     expect(wrapper.text()).toContain('apps/api')
+    expect(wrapper.text()).toContain('compose up failed: no such image')
+    wrapper.unmount()
   })
 })

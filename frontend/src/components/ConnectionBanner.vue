@@ -1,12 +1,13 @@
 <template>
   <div
     class="connection"
-    :class="{ stale: !store.isConnected }"
+    :class="{ stale: !store.isConnected || !work.restored }"
     role="status"
     data-testid="connection-banner"
   >
     <span class="connection-dot" aria-hidden="true" />
-    <span v-if="store.isConnected">Live</span>
+    <span v-if="store.isConnected && work.restored">Connected</span>
+    <span v-else-if="store.isConnected">Restoring work state…</span>
     <span v-else-if="store.isReconnecting"
       >Reconnecting<span class="connection-detail">
         · Data may be stale</span
@@ -28,8 +29,10 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useStacksStore } from '../store/stacks'
+import { useWorkStore } from '../store/work'
 
 const store = useStacksStore()
+const work = useWorkStore()
 const hasConnectedOnce = ref(false)
 watch(
   () => store.connectionState,

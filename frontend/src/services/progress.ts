@@ -1,4 +1,6 @@
-// Wire fields shared by reconciliation and scheduled/manual image updates.
+// Legacy update.* payloads stay unchanged during v2 coexistence. They have no
+// trustworthy run identity: never attach their layer bytes to v2 stack rows.
+// Correlated work.snapshot/work.upsert wire types live in ./work.
 export interface UpdateProgress {
   type:
     | 'started'
@@ -27,12 +29,4 @@ export interface UpdateProgress {
   bytesCurrent?: number
   bytesTotal?: number
   done?: boolean
-}
-
-export interface ActivityEntry {
-  id: number
-  at: string
-  message: string
-  stack?: string
-  tone: 'success' | 'error' | 'info'
 }

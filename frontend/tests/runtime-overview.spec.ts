@@ -1,12 +1,19 @@
 import { flushPromises } from '@vue/test-utils'
-import { afterEach, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { effectScope, nextTick, ref } from 'vue'
 import { useRuntimeOverview } from '../src/composables/useRuntimeOverview'
-import { type ContainerInfo, fetchContainers, type StackRecord } from '../src/services/api'
+import { useStackContainers } from '../src/composables/useStackContainers'
+import { type ContainerInfo, requestJSON, type StackRecord } from '../src/services/api'
+import { useConsoleStore } from '../src/store/console'
 import { needsAttention, runtimeHealth } from '../src/utils/stackState'
 
-vi.mock('../src/services/api', () => ({ fetchContainers: vi.fn() }))
-afterEach(() => vi.clearAllMocks())
+vi.mock('../src/services/api', () => ({ requestJSON: vi.fn() }))
+beforeEach(() => {
+  setActivePinia(createPinia())
+  vi.clearAllMocks()
+})
+afterEach(() => useConsoleStore().$dispose())
 const stack: StackRecord = {
   path: 'apps/web',
   status: 'synced',
@@ -24,27 +31,24 @@ const container: ContainerInfo = {
   health: 'healthy',
 }
 
-it('invalidates only changed stacks and ignores inspection responses after redeployment or removal', async () => {
-  let resolveOld!: (value: ContainerInfo[]) => void
-  vi.mocked(fetchContainers).mockReturnValueOnce(
-    new Promise((resolve) => {
-      resolveOld = resolve
-    }),
-  )
+it('shares a single global observation with detail, avoids per-stack fetches and removes absent scopes', async () => {
+  vi.mocked(requestJSON).mockResolvedValue({
+    [stack.path]: { containers: [container], error: null, observedAt: '2026-10-23T12:00:00Z' },
+  })
   const records = ref([stack])
   const scope = effectScope()
   const runtime = scope.run(() => useRuntimeOverview(() => records.value))
   if (!runtime) throw new Error('Runtime scope did not start')
-  vi.mocked(fetchContainers).mockResolvedValue([container])
-  records.value = [{ ...stack, syncedRevision: 'new' }]
+  const detail = scope.run(() => useStackContainers(() => records.value[0]))
+  if (!detail) throw new Error('Detail scope did not start')
   await flushPromises()
-  expect(runtime.value.get(stack.path)?.containers[0].id).toBe('new')
-  resolveOld([{ ...container, id: 'stale' }])
+  expect(detail.containers.value).toEqual(runtime.value.get(stack.path)?.containers)
+  records.value = [{ ...stack, syncedRevision: 'new' }]
   await flushPromises()
   expect(runtime.value.get(stack.path)?.containers[0].id).toBe('new')
   records.value = [...records.value]
   await nextTick()
-  expect(fetchContainers).toHaveBeenCalledTimes(2)
+  expect(requestJSON).toHaveBeenCalledTimes(1)
   records.value = []
   await nextTick()
   expect(runtime.value.has(stack.path)).toBe(false)

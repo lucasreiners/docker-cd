@@ -53,6 +53,36 @@ func TestHistoryRetentionPreservesActiveOperations(t *testing.T) {
 	}
 }
 
+func TestRetentionPreservesCompletedAncestryAndTerminalImmutability(t *testing.T) {
+	store, _ := Open("")
+	root := store.Start("", "refresh", "manual", "", "")
+	store.Update(root.ID, "completed", "Checked Git", true)
+	parent := store.Start(root.ID, "action", "retry", "web", "")
+	store.Update(parent.ID, "completed", "Accepted", true)
+	child := store.Start(parent.ID, "deployment", "manual", "web", "")
+	for i := 0; i < 1005; i++ {
+		r := store.Start("", "refresh", "periodic", "", "")
+		store.Update(r.ID, "completed", "done", true)
+	}
+	for _, id := range []string{root.ID, parent.ID, child.ID} {
+		if _, ok := store.Get(id); !ok {
+			t.Fatalf("active ancestor evicted: %s", id)
+		}
+	}
+	before, _ := store.Get(root.ID)
+	if _, changed := store.Update(root.ID, "failed", "late outcome", true); changed {
+		t.Fatal("terminal operation changed outcome")
+	}
+	after, _ := store.Get(root.ID)
+	if after.Version != before.Version || after.Status != "completed" {
+		t.Fatal("terminal record changed")
+	}
+	store.Update(child.ID, "completed", "done", true)
+	if _, ok := store.Get(root.ID); ok {
+		t.Fatal("unneeded old ancestor leaked beyond retention")
+	}
+}
+
 func TestConcurrentUpdatesAndStorageFailureAreObservable(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "data", "history.json")

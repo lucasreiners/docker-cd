@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lucasreiners/docker-cd/internal/config"
 	"github.com/lucasreiners/docker-cd/internal/desiredstate"
+	"github.com/lucasreiners/docker-cd/internal/docker"
 	"github.com/lucasreiners/docker-cd/internal/reconcile"
 	"github.com/lucasreiners/docker-cd/internal/refresh"
 )
@@ -44,11 +45,27 @@ func NewRouter(cfg config.Config, refreshSvc *refresh.Service, store *desiredsta
 		r.POST("/api/reconcile/ack", AckHandler(ackStore, reconciler))
 	}
 	// Container listing for individual stacks
-	if lister, ok := reconciler.(ContainerLister); ok {
-		r.GET("/api/stacks/containers/*path", ContainersHandler(lister))
+	var runtime *RuntimeReader
+	if lister, ok := reconciler.(ContainerLister); ok && store != nil {
+		inspector, _ := api.(docker.IdentityInspector)
+		runtime = NewRuntimeReader(store, lister, inspector, consoleBroadcaster)
+		r.GET("/api/stacks/containers/*path", ContainersHandler(runtime))
+		r.GET("/api/runtime", func(c *gin.Context) {
+			observations, err := runtime.Read(c.Request.Context())
+			if err != nil {
+				c.JSON(503, gin.H{"error": "Runtime observation unavailable"})
+				return
+			}
+			c.JSON(200, observations)
+		})
 	}
 	if len(broadcaster) > 0 && broadcaster[0] != nil && store != nil {
-		r.GET("/api/events", EventsHandler(broadcaster[0], store))
+		r.GET("/api/events", func(c *gin.Context) {
+			if runtime != nil {
+				runtime.Reconnect()
+			}
+			EventsHandler(broadcaster[0], store)(c)
+		})
 	}
 
 	return r

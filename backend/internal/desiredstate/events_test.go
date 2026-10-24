@@ -245,7 +245,7 @@ func TestBroadcaster_BootstrapIsPrivateAndRestoresProgress(t *testing.T) {
 	defer b.Unsubscribe(other)
 	sub, initial := b.SubscribeWithSnapshot(store)
 	defer b.Unsubscribe(sub)
-	if len(initial) != 3 || initial[1].Type != desiredstate.EventRefreshStatus || initial[2].Type != desiredstate.EventUpdateSnapshot {
+	if len(initial) != 4 || initial[1].Type != desiredstate.EventRefreshStatus || initial[2].Type != desiredstate.EventUpdateSnapshot || initial[3].Type != desiredstate.EventWorkSnapshot {
 		t.Fatalf("incomplete bootstrap: %+v", initial)
 	}
 	if !strings.Contains(initial[1].Data, `"refreshStatus":"refreshing"`) || !strings.Contains(initial[2].Data, "cycle-1") {

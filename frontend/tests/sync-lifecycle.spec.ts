@@ -1,15 +1,20 @@
+import { flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { effectScope, nextTick, ref } from 'vue'
+import { operationalWorkspaceFixtures } from '../../tests/e2e/fixtures/frontend-data'
 import { useStackContainers } from '../src/composables/useStackContainers'
 import type { ContainerInfo, RefreshSnapshot, StackRecord } from '../src/services/api'
-import { fetchContainers, fetchRefreshStatus, fetchStacks } from '../src/services/api'
+import { fetchRefreshStatus, fetchStacks, requestJSON } from '../src/services/api'
+import { useConsoleStore } from '../src/store/console'
 import { useStacksStore } from '../src/store/stacks'
+import { useWorkStore } from '../src/store/work'
 
 vi.mock('../src/services/api', () => ({
   fetchStacks: vi.fn(),
   fetchRefreshStatus: vi.fn(),
   fetchContainers: vi.fn(),
+  requestJSON: vi.fn(),
   getEventsURL: () => '/api/events',
 }))
 
@@ -94,30 +99,24 @@ describe('live sync state', () => {
     expect(store.stacks).toHaveLength(1)
   })
 
-  it('clears initial-sync pulls on deployment and completion without a scheduler cycle', () => {
+  it('keeps correlated initial-sync work through applying without a scheduler cycle', () => {
     const store = useStacksStore()
+    const work = useWorkStore()
+    const f = operationalWorkspaceFixtures()
+    work.setCapability(2)
     store.connectSSE()
-    const send = (data: object) =>
-      EventStream.current.send('update.progress', {
-        source: 'reconcile',
-        stack: stack.path,
-        ...data,
-      })
-    send({ type: 'stack_sync_started', message: 'Syncing stack' })
-    send({
-      type: 'image_pull_progress',
-      image: 'nginx',
-      status: 'Download complete',
-      current: 1,
-      total: 1,
+    EventStream.current.onopen?.()
+    EventStream.current.send('work.snapshot', f.snapshot)
+    const run = f.snapshot.runs[0]
+    if (!run) throw new Error('Missing run fixture')
+    expect(work.activeRuns.find((r) => r.runId === run.runId)?.source).toBe('reconcile')
+    EventStream.current.send('work.upsert', {
+      ...f.bytes,
+      run: { ...run, phase: 'applying', message: 'Applying Compose', imageCount: 0, images: [] },
     })
-    expect(store.pullProgress?.images[0].done).toBe(false)
-    expect(store.updateProgress.message).toBe('Syncing stack')
-    send({ type: 'stack_deploying', message: 'Deploying stack' })
-    expect(store.pullProgress).toBeNull()
-    send({ type: 'stack_success', message: 'Synced stack' })
-    vi.advanceTimersByTime(3000)
-    expect(store.updateProgress).toBeNull()
+    expect(work.activeRuns.find((r) => r.runId === run.runId)?.phase).toBe('applying')
+    expect(work.workflows).toHaveLength(2)
+    expect(store.isUpdating).toBe(false)
   })
 
   it('restores an in-flight update and clears a missed completion on reconnect', () => {
@@ -131,54 +130,149 @@ describe('live sync state', () => {
       progress: [{ type: 'completed', cycle_id: '1' }],
     })
     expect(store.isUpdating).toBe(false)
-    expect(store.updateProgress).toBeNull()
+    EventStream.current.send('update.progress', { type: 'started', cycle_id: '2' })
+    EventStream.current.send('update.progress', {
+      type: 'stack_success',
+      cycle_id: '2',
+      stack: stack.path,
+    })
+    expect(store.isUpdating).toBe(true)
+    EventStream.current.send('update.progress', { type: 'completed', cycle_id: '2' })
+    expect(store.isUpdating).toBe(false)
   })
 
   it('tracks layers independently and only marks the image complete at stream completion', () => {
     const store = useStacksStore()
     store.connectSSE()
+    const f = operationalWorkspaceFixtures(),
+      work = useWorkStore()
+    work.setCapability(2)
+    EventStream.current.onopen?.()
     EventStream.current.send('stack.snapshot', { records: [{ ...stack, status: 'syncing' }] })
-    const send = (data: object) =>
-      EventStream.current.send('update.progress', {
-        type: 'image_pull_progress',
-        source: 'reconcile',
-        stack: stack.path,
-        image: 'large-image',
-        current: 1,
-        total: 1,
-        ...data,
-      })
-    send({ layerId: 'a', status: 'Downloading', bytesCurrent: 10, bytesTotal: 100 })
-    send({ layerId: 'b', status: 'Downloading', bytesCurrent: 20, bytesTotal: 200 })
-    send({ layerId: 'a', status: 'Pull complete' })
-    expect(store.pullProgress?.images[0].layers).toHaveLength(2)
-    expect(store.pullProgress?.images[0].layers[1].bytesCurrent).toBe(20)
-    expect(store.pullProgress?.images[0].done).toBe(false)
+    const run = structuredClone(f.snapshot.runs[0])
+    if (!run) throw new Error('Missing run fixture')
+    const image = run.images[0]
+    const layer = image?.layers[0]
+    if (!image || !layer) throw new Error('Missing image/layer fixture')
+    image.layers = [
+      {
+        ...layer,
+        id: 'a',
+        status: 'Pull complete',
+        done: true,
+        bytesCurrent: 100,
+        bytesTotal: 100,
+      },
+      { ...layer, id: 'b', bytesCurrent: 20, bytesTotal: 200 },
+    ]
+    image.layerCount = 2
+    EventStream.current.send('work.snapshot', { ...f.snapshot, runs: [run, f.snapshot.runs[1]] })
+    const currentImage = () => work.activeRuns.find((r) => r.runId === run.runId)?.images[0]
+    expect(currentImage()?.layers).toHaveLength(2)
+    expect(currentImage()?.layers[1]?.bytesCurrent).toBe(20)
+    expect(currentImage()?.done).toBe(false)
     vi.advanceTimersByTime(15 * 60 * 1000)
     expect(store.getStack(stack.path)?.status).toBe('syncing')
-    expect(store.pullProgress?.images[0].done).toBe(false)
-    send({ status: 'Pull complete', done: true })
-    expect(store.pullProgress?.images[0].done).toBe(true)
+    expect(currentImage()?.done).toBe(false)
+    EventStream.current.send('work.upsert', {
+      ...f.bytes,
+      run: { ...run, phase: 'applying', images: [{ ...image, status: 'completed', done: true }] },
+    })
+    expect(currentImage()?.done).toBe(true)
+    expect(work.activeRuns.find((r) => r.runId === run.runId)?.status).toBe('running')
+    expect(
+      work.activeRuns.find((r) => r.runId !== run.runId)?.images[0]?.layers[0]?.bytesCurrent,
+    ).toBe(128)
   })
 
-  it('handles cancellation and prevents an old completion timer clearing a newer sync', () => {
+  it('handles legacy cancellation and keeps a new cycle active independently of reconcile completion', () => {
     const store = useStacksStore()
-    store.connectSSE()
+    const onOperation = vi.fn()
+    store.connectSSE(onOperation)
     EventStream.current.send('update.progress', { type: 'started', cycle_id: '1' })
     EventStream.current.send('update.progress', { type: 'cancelled', cycle_id: '1' })
     expect(store.isUpdating).toBe(false)
     vi.advanceTimersByTime(2000)
     EventStream.current.send('update.progress', { type: 'started', cycle_id: '2' })
     vi.advanceTimersByTime(2000)
-    expect(store.updateProgress.cycle_id).toBe('2')
+    EventStream.current.send('update.progress', {
+      type: 'stack_success',
+      source: 'reconcile',
+      stack: stack.path,
+    })
+    expect(store.isUpdating).toBe(true)
+    const operation = { ...operationalWorkspaceFixtures().snapshot.operations[1], steps: [] }
+    EventStream.current.send('operation.upsert', operation)
+    expect(onOperation).toHaveBeenCalledWith(operation)
+    expect(useWorkStore().history[operation.id]?.trigger).toBe('webhook')
+    expect(useWorkStore().activeRuns).toHaveLength(0)
+  })
+
+  it('consumes v2 work through the actual SSE store pipeline, restores after reconnect and refreshes runtime on terminal bursts', async () => {
+    const f = operationalWorkspaceFixtures()
+    const stacks = useStacksStore()
+    const work = useWorkStore()
+    const consoleStore = useConsoleStore()
+    vi.mocked(requestJSON).mockResolvedValue({})
+    work.setCapability(2)
+    stacks.connectSSE(consoleStore.onOperation, () => consoleStore.refreshRuntime(true))
+    const first = EventStream.current
+    first.onopen?.()
+    expect(work.mutationReady).toBe(false)
+    first.send('work.snapshot', f.snapshot)
+    expect(work.mutationReady).toBe(true)
+    first.send('work.upsert', f.operationOnly)
+    expect(work.workflows).toHaveLength(3)
+    expect(work.activeRuns).toHaveLength(2)
+    first.send('work.upsert', f.bytes)
+    first.send('work.upsert', f.terminal)
+    first.send('work.upsert', {
+      ...f.operationOnly,
+      sequence: 15,
+      operations: f.operationOnly.operations.map((op) => ({
+        ...op,
+        version: 2,
+        status: 'completed',
+        finishedAt: '2026-10-23T12:00:05Z',
+      })),
+    })
+    expect(work.workflows).toHaveLength(2)
+    first.send('stack.upsert', { record: { ...stack, status: 'synced' } })
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(200)
+    expect(requestJSON).toHaveBeenCalledWith('/api/runtime')
+    expect(work.activeRuns).toHaveLength(1)
+    expect(work.terminalRuns).toHaveLength(1)
+    first.onerror?.()
+    expect(work.mutationReady).toBe(false)
+    await vi.advanceTimersByTimeAsync(1000)
+    const second = EventStream.current
+    second.onopen?.()
+    expect(work.mutationReady).toBe(false)
+    second.send('work.snapshot', f.reconnect)
+    expect(work.activeRuns).toHaveLength(0)
+    expect(work.mutationReady).toBe(true)
+    first.send('work.snapshot', f.snapshot)
+    first.send('work.upsert', { ...f.bytes, sequence: 999 })
+    expect(work.activeRuns).toHaveLength(0)
+    second.send('work.upsert', { ...f.bytes, sequence: 'malformed' })
+    expect(work.mutationReady).toBe(false)
+    expect(EventStream.current).not.toBe(second)
+    EventStream.current.onopen?.()
+    EventStream.current.send('work.snapshot', f.restart)
+    expect(work.epoch).toBe(f.restart.epoch)
+    expect(work.mutationReady).toBe(true)
+    consoleStore.$dispose()
   })
 })
 
-it('refreshes containers after sync even when counts stay equal, ignoring stale responses', async () => {
+it('serializes shared observations after sync even when counts stay equal, ignoring invalidated responses', async () => {
+  setActivePinia(createPinia())
+  vi.useFakeTimers()
   const scope = effectScope()
   const record = ref<StackRecord | undefined>(stack)
-  let resolveOld!: (containers: ContainerInfo[]) => void
-  vi.mocked(fetchContainers).mockReturnValueOnce(
+  let resolveOld!: (value: unknown) => void
+  vi.mocked(requestJSON).mockReturnValueOnce(
     new Promise((resolve) => {
       resolveOld = resolve
     }),
@@ -193,16 +287,21 @@ it('refreshes containers after sync even when counts stay equal, ignoring stale 
     state: 'running',
     health: 'none',
   }
-  vi.mocked(fetchContainers).mockResolvedValue([container])
+  vi.mocked(requestJSON).mockResolvedValue({
+    [stack.path]: { containers: [container], error: null, observedAt: '2026-10-23T12:00:00Z' },
+  })
   record.value = { ...stack, status: 'synced' }
   await nextTick()
-  await Promise.resolve()
-  expect(state.containers.value[0]?.id).toBe('new')
-  resolveOld([])
-  await Promise.resolve()
+  await vi.advanceTimersByTimeAsync(200)
+  expect(requestJSON).toHaveBeenCalledTimes(1)
+  resolveOld({ [stack.path]: { containers: [], error: null, observedAt: '2026-10-23T11:00:00Z' } })
+  await flushPromises()
   expect(state.containers.value[0]?.id).toBe('new')
   record.value = { ...record.value }
   await nextTick()
-  expect(fetchContainers).toHaveBeenCalledTimes(3)
+  await vi.advanceTimersByTimeAsync(200)
+  expect(requestJSON).toHaveBeenCalledTimes(3)
   scope.stop()
+  useConsoleStore().$dispose()
+  vi.useRealTimers()
 })

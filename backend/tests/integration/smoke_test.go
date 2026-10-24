@@ -41,7 +41,14 @@ func TestSmokeRootEndpoint(t *testing.T) {
 		DockerSocket: socketPath,
 	}
 
-	router := handler.NewRouter(cfg, nil, nil, nil, nil, nil, nil)
+	api, err := docker.NewSDKClient(socketPath)
+	if err != nil {
+		t.Fatalf("Docker SDK client: %v", err)
+	}
+	if closer, ok := api.(interface{ Close() error }); ok {
+		t.Cleanup(func() { _ = closer.Close() })
+	}
+	router := handler.NewRouter(cfg, nil, nil, nil, nil, nil, api)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()

@@ -2,7 +2,7 @@
   <div>
     <router-link
       class="back-link"
-      :to="{ path: '/stacks', query: { ...route.query, tab: undefined } }"
+      :to="{ path: '/stacks', query: { ...route.query, tab: undefined, container: undefined } }"
       >← All stacks</router-link
     >
     <div class="page-heading">
@@ -15,38 +15,8 @@
         <StatusBadge
           :status="stack.status"
           :acknowledgement="stack.requiresAcknowledgement"
-        /><button
-          v-if="consoleStore.instance?.capabilities.apply"
-          class="button"
-          :disabled="
-            busy ||
-            stack.status === 'syncing' ||
-            !!store.refreshStatus?.updatesBlocked
-          "
-          @click="
-            action(stack.requiresAcknowledgement ? 'acknowledge' : 'retry')
-          "
-        >
-          <RotateCw :size="14" />{{
-            stack.requiresAcknowledgement
-              ? "Acknowledge & deploy"
-              : "Redeploy stack"
-          }}</button
-        ><button
-          v-if="
-            consoleStore.instance?.capabilities.imageUpdates &&
-            !stack.requiresAcknowledgement
-          "
-          class="button button-primary"
-          :disabled="
-            busy ||
-            stack.status === 'syncing' ||
-            !!store.refreshStatus?.updatesBlocked
-          "
-          @click="action('update')"
-        >
-          Update images
-        </button>
+        />
+        <StackActions :stack="stack" :reviewed-revision="tab === 'configuration' ? reviewedRevision : null" :review-to="{ query: { ...route.query, tab: 'configuration' } }" @review="reviewAgain" />
       </div>
     </div>
     <div v-if="error" class="notice notice-error" role="alert">{{ error }}</div>
@@ -58,6 +28,7 @@
       <p>The stack "{{ stackPath }}" was not found in the current state.</p>
     </div>
     <template v-else>
+      <StackWork :stack="stackPath" />
       <nav class="resource-tabs" aria-label="Stack sections">
         <router-link
           v-for="item in tabs"
@@ -86,7 +57,7 @@
             }}
           </p>
           <p>
-            Reviewed revision: <code>{{ reviewedRevision }}</code>
+            Desired revision: <code>{{ stack.desiredRevision || store.refreshStatus?.revision || 'Unknown' }}</code>. Review the source comparison before approving.
           </p>
         </div>
         <div
@@ -143,10 +114,11 @@
             </div>
             <div class="padded runtime-summary">
               <strong
-                >{{ stack.containersRunning ?? "—" }} of
-                {{ stack.containersTotal ?? "—" }} running</strong
+                >{{ runtime.observedAt ? containers.filter(c => c.state === 'running').length : '—' }} of
+                {{ runtime.observedAt ? containers.length : '—' }} running</strong
               >
               <p :class="health.tone">{{ health.label }}</p>
+              <p class="inventory-secondary">Observed <RelativeTime :value="runtime.observedAt || undefined" />{{ runtime.stale ? ' · Stale observation' : '' }}</p>
               <p class="muted">
                 Deployment state and runtime health are independent.
               </p>
@@ -158,6 +130,7 @@
             </div>
           </section>
         </div>
+        <section class="detail-container-preview surface"><div class="panel-heading"><h2>Observed containers</h2><router-link :to="{query: {...route.query, tab: 'containers'}}">Show all {{ containers.length }}</router-link></div><ul class="inventory-container-list"><ContainerRow v-for="c in containers.slice(0, 2)" :key="c.id" :container="c" :stack-path="stackPath" :query="route.query" :logs-available="!!consoleStore.instance?.capabilities.logs" @inspect="inspectContainer" /></ul><p v-if="!containers.length" class="padded">{{ containersError ? 'Runtime unavailable' : containersLoading ? 'Loading runtime…' : 'No containers observed' }}</p></section>
         <div class="section-heading">
           <h2>Recent operations</h2>
           <router-link :to="{ query: { ...route.query, tab: 'activity' } }"
@@ -172,23 +145,23 @@
             Containers <span class="count-label">{{ containers.length }}</span>
           </h2>
           <button class="button" @click="reloadContainers">
-            <RefreshCw :size="14" />Refresh
+            <RefreshCw :size="14" />Refresh runtime
           </button>
         </div>
         <div v-if="containersLoading" class="skeleton" role="status">
           Loading containers…
         </div>
         <div
-          v-else-if="containersError"
+          v-if="containersError"
           class="notice notice-error"
           role="alert"
         >
           {{ containersError }}
         </div>
-        <div v-else-if="!containers.length" class="empty-state surface">
+        <div v-if="!containers.length && !containersError && !containersLoading" class="empty-state surface">
           <h3>No containers found</h3>
         </div>
-        <div v-else class="container-list">
+        <div v-if="containers.length" class="container-list">
           <article
             v-for="c in containers"
             :key="c.id"
@@ -196,7 +169,7 @@
           >
             <div class="container-header">
               <div>
-                <button class="resource-link" @click="selectedContainer = c">
+                <button class="resource-link" @click="inspectContainer(c.id, $event.currentTarget as HTMLElement)">
                   {{ c.service }}<ArrowUpRight :size="12" />
                 </button>
                 <p class="cell-subtitle">{{ c.name }}</p>
@@ -217,7 +190,7 @@
               <div>
                 <dt>Image</dt>
                 <dd>
-                  <code>{{ c.image }}</code>
+                  <ImageIdentity :image="c.image" :identity="c.imageIdentity" />
                 </dd>
               </div>
               <div v-if="c.ports">
@@ -238,12 +211,6 @@
                       formatPort(port)
                     }}</span></template
                   >
-                </dd>
-              </div>
-              <div>
-                <dt>Container ID</dt>
-                <dd>
-                  <code>{{ c.id }}</code>
                 </dd>
               </div>
             </dl>
@@ -287,50 +254,33 @@
       <section v-else>
         <div class="section-heading">
           <h2>Stack activity</h2>
-          <button class="button" @click="loadStackOperations">
+          <button class="button" @click="loadStackOperations(false)">
             Refresh history
           </button>
         </div>
-        <OperationsTable :records="stackOperations" />
+        <OperationsTable :records="stackHistory" />
+        <button v-if="historyCursor" class="button" @click="loadStackOperations(true)">Load older stack operations</button>
       </section>
     </template>
-    <Drawer
-      :visible="!!selectedContainer"
-      header="Container inspector"
-      position="right"
-      style="width: min(510px, 100vw)"
-      class="operation-drawer"
-      @update:visible="
-        (value) => {
-          if (!value) selectedContainer = null;
-        }
-      "
-      ><template v-if="selectedContainer"
-        ><h2>{{ selectedContainer.name }}</h2>
-        <dl class="definition-list">
-          <div v-for="(value, key) in selectedContainer" :key="key">
-            <dt>{{ key }}</dt>
-            <dd>
-              <code>{{ value }}</code>
-            </dd>
-          </div>
-        </dl></template
-      ></Drawer
-    >
+    <ContainerInspector :selection="consoleStore.inspectedContainer?.stack === stackPath ? consoleStore.inspectedContainer : null" :current="consoleStore.inspectedContainerCurrent" :removed="consoleStore.inspectedContainerRemoved" :comparison="consoleStore.inspectedContainerIdentityComparison" :runtime="runtime" :trigger="inspectorTrigger" :query="route.query" :logs-available="!!consoleStore.instance?.capabilities.logs" @close="consoleStore.inspectedContainer = null" />
   </div>
 </template>
 <script setup lang="ts">
-import { ArrowUpRight, Box, GitCommitHorizontal, RefreshCw, RotateCw } from 'lucide-vue-next'
-import Drawer from 'primevue/drawer'
+import { ArrowUpRight, Box, GitCommitHorizontal, RefreshCw } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import ContainerInspector from '../components/ContainerInspector.vue'
 import ContainerLogs from '../components/ContainerLogs.vue'
+import ContainerRow from '../components/ContainerRow.vue'
+import ImageIdentity from '../components/ImageIdentity.vue'
 import OperationsTable from '../components/OperationsTable.vue'
 import RelativeTime from '../components/RelativeTime.vue'
 import SourceComparison from '../components/SourceComparison.vue'
+import StackActions from '../components/StackActions.vue'
+import StackWork from '../components/StackWork.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import { useStackContainers } from '../composables/useStackContainers'
-import { type ContainerInfo, fetchContainers, type Operation, requestJSON } from '../services/api'
+import { type Operation, requestJSON } from '../services/api'
 import { useConsoleStore } from '../store/console'
 import { useStacksStore } from '../store/stacks'
 import { buildPortURL, type PortMapping, parsePortString } from '../utils/portUtils'
@@ -346,10 +296,10 @@ const name = computed(() => stackPath.value.split('/').pop()),
   directory = computed(() =>
     stackPath.value.includes('/') ? stackPath.value.slice(0, stackPath.value.lastIndexOf('/')) : '',
   )
-const stack = computed(() => store.getStack(stackPath.value)),
-  reviewedRevision = computed(
-    () => stack.value?.desiredRevision || store.refreshStatus?.revision || '',
-  )
+const stack = computed(() => store.getStack(stackPath.value))
+// Only the loaded comparison grants approval. Never bind this to the reactive
+// desired revision, which may change while the operator reviews the diff.
+const reviewedRevision = ref<string | null>(null)
 const tabs = computed(() => [
   { label: 'Overview', value: 'overview' },
   { label: 'Containers', value: 'containers' },
@@ -361,87 +311,82 @@ const tab = computed(() =>
   tabs.value.some((t) => t.value === route.query.tab) ? String(route.query.tab) : 'overview',
 )
 const { containers, containersLoading, containersError } = useStackContainers(() => stack.value)
+const runtime = computed(() => consoleStore.runtimeFor(stackPath.value))
 const health = computed(() =>
-  runtimeHealth({
-    containers: containers.value,
-    loading: containersLoading.value,
-    error: containersError.value,
-  }),
+  runtime.value.stale
+    ? { label: 'Runtime observation stale · showing last known state', tone: 'text-warning' }
+    : runtimeHealth(runtime.value),
 )
-const selectedContainer = ref<ContainerInfo | null>(null),
-  source = ref(''),
+const inspectorTrigger = ref<HTMLElement | null>(null)
+function inspectContainer(id: string, trigger: HTMLElement) {
+  inspectorTrigger.value = trigger
+  consoleStore.inspectContainer(stackPath.value, id)
+}
+const source = ref(''),
   sourceError = ref(''),
-  busy = ref(false),
   error = ref('')
 const appliedSource = ref<{ content: string; revision: string } | null>(null)
 const stackOperations = computed(() =>
   consoleStore.operations.filter((o) => o.stack === stackPath.value),
 )
-async function loadStackOperations() {
+const stackHistory = ref<Operation[]>([]),
+  historyCursor = ref('')
+let historyRequest = 0
+async function loadStackOperations(append = false) {
+  const request = ++historyRequest,
+    path = stackPath.value
   try {
-    const result = await requestJSON<{ records: Operation[] }>(
-      `/api/operations?stack=${encodeURIComponent(stackPath.value)}&limit=100`,
+    const result = await requestJSON<{ records: Operation[]; nextCursor?: string }>(
+      `/api/operations?stack=${encodeURIComponent(path)}&limit=50${append && historyCursor.value ? `&cursor=${encodeURIComponent(historyCursor.value)}` : ''}`,
     )
+    if (request !== historyRequest || stackPath.value !== path) return
+    stackHistory.value = [...(append ? stackHistory.value : []), ...result.records]
+    historyCursor.value = result.nextCursor || ''
     for (const operation of result.records) consoleStore.onOperation(operation)
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'History unavailable'
+    if (request === historyRequest && stackPath.value === path)
+      error.value = e instanceof Error ? e.message : 'History unavailable'
   }
 }
+let sourceRequest = 0
 watch(
   [stackPath, tab],
   async ([path, section]) => {
     error.value = ''
     if (section === 'activity') await loadStackOperations()
     if (section === 'configuration') {
-      source.value = ''
-      sourceError.value = ''
-      try {
-        const data = await requestJSON<{
-          content: string
-          applied?: { content: string; revision: string } | null
-        }>(`/api/stack/configuration?path=${encodeURIComponent(path)}`)
-        if (stackPath.value === path) {
-          source.value = data.content || '# No source content available'
-          appliedSource.value = data.applied || null
-        }
-      } catch (e) {
-        if (stackPath.value === path)
-          sourceError.value = e instanceof Error ? e.message : 'Source unavailable'
-      }
+      await loadSource(path)
     }
   },
   { immediate: true },
 )
-async function action(actionName: string) {
-  busy.value = true
-  error.value = ''
+async function loadSource(path: string) {
+  const request = ++sourceRequest
+  reviewedRevision.value = null
+  source.value = ''
+  sourceError.value = ''
+  appliedSource.value = null
   try {
-    const result = await requestJSON<{ operationId: string }>('/api/operations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: actionName,
-        stack: stackPath.value,
-        revision: reviewedRevision.value,
-      }),
-    })
-    await consoleStore.inspect(result.operationId)
+    const data = await requestJSON<{
+      revision?: string
+      content: string
+      applied?: { content: string; revision: string } | null
+    }>(`/api/stack/configuration?path=${encodeURIComponent(path)}`)
+    if (request !== sourceRequest || stackPath.value !== path || tab.value !== 'configuration')
+      return
+    source.value = data.content || '# No source content available'
+    appliedSource.value = data.applied || null
+    reviewedRevision.value = data.revision || null
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Action failed'
-  } finally {
-    busy.value = false
+    if (request === sourceRequest && stackPath.value === path)
+      sourceError.value = e instanceof Error ? e.message : 'Source unavailable'
   }
 }
+function reviewAgain() {
+  if (tab.value === 'configuration') void loadSource(stackPath.value)
+}
 async function reloadContainers() {
-  containersLoading.value = true
-  try {
-    containers.value = await fetchContainers(stackPath.value)
-    containersError.value = null
-  } catch (e) {
-    containersError.value = e instanceof Error ? e.message : 'Runtime unavailable'
-  } finally {
-    containersLoading.value = false
-  }
+  await consoleStore.loadRuntime()
 }
 function formatPort(port: PortMapping) {
   return `${port.external !== null ? `${port.external}:` : ''}${port.internal}/${port.protocol}`

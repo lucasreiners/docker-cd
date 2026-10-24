@@ -20,18 +20,19 @@ type Step struct {
 	Message string    `json:"message"`
 }
 type Record struct {
-	Version    uint64     `json:"version"`
-	ID         string     `json:"id"`
-	ParentID   string     `json:"parentId,omitempty"`
-	Kind       string     `json:"kind"`
-	Trigger    string     `json:"trigger"`
-	Stack      string     `json:"stack,omitempty"`
-	Revision   string     `json:"revision,omitempty"`
-	Status     string     `json:"status"`
-	Message    string     `json:"message"`
-	StartedAt  time.Time  `json:"startedAt"`
-	FinishedAt *time.Time `json:"finishedAt,omitempty"`
-	Steps      []Step     `json:"steps"`
+	runtimeVersion uint64
+	Version        uint64     `json:"version"`
+	ID             string     `json:"id"`
+	ParentID       string     `json:"parentId,omitempty"`
+	Kind           string     `json:"kind"`
+	Trigger        string     `json:"trigger"`
+	Stack          string     `json:"stack,omitempty"`
+	Revision       string     `json:"revision,omitempty"`
+	Status         string     `json:"status"`
+	Message        string     `json:"message"`
+	StartedAt      time.Time  `json:"startedAt"`
+	FinishedAt     *time.Time `json:"finishedAt,omitempty"`
+	Steps          []Step     `json:"steps"`
 }
 type contextKey struct{}
 type triggerKey struct{}
@@ -52,17 +53,18 @@ func WithID(ctx context.Context, id string) context.Context {
 }
 
 type Store struct {
-	mu          sync.RWMutex
-	path        string
-	records     map[string]Record
-	lastError   string
-	sources     map[string]Source
-	sourceError string
+	mu               sync.RWMutex
+	path             string
+	records          map[string]Record
+	lastError        string
+	sources          map[string]Source
+	sourceError      string
+	terminalRevision uint64
 }
 
 // An empty path creates an in-memory store for isolated unit/integration fixtures.
 func Open(path string) (*Store, error) {
-	s := &Store{path: path, records: make(map[string]Record), sources: make(map[string]Source)}
+	s := &Store{path: path, records: make(map[string]Record), sources: make(map[string]Source), terminalRevision: 1}
 	if path == "" {
 		return s, nil
 	}
@@ -145,9 +147,24 @@ func writeAtomic(path string, data []byte) error {
 	return dir.Sync()
 }
 func (s *Store) save() {
-	completed := make([]Record, 0)
+	// A completed ancestor is still live context while any descendant runs.
+	protected := make(map[string]bool)
 	for _, r := range s.records {
 		if r.Status != "running" {
+			continue
+		}
+		for id := r.ID; id != "" && !protected[id]; {
+			protected[id] = true
+			ancestor, ok := s.records[id]
+			if !ok {
+				break
+			}
+			id = ancestor.ParentID
+		}
+	}
+	completed := make([]Record, 0)
+	for _, r := range s.records {
+		if r.Status != "running" && !protected[r.ID] {
 			completed = append(completed, r)
 		}
 	}
@@ -176,6 +193,9 @@ func (s *Store) Update(id, phase, message string, finish bool) (Record, bool) {
 	if !ok {
 		return r, false
 	}
+	if r.Status != "running" {
+		return clone(r), false
+	}
 	now := time.Now().UTC()
 	r.Message = message
 	r.Version++
@@ -186,10 +206,37 @@ func (s *Store) Update(id, phase, message string, finish bool) (Record, bool) {
 	if finish {
 		r.Status = phase
 		r.FinishedAt = &now
+		if r.Kind == "deployment" || r.Kind == "removal" {
+			s.terminalRevision++
+			r.runtimeVersion = s.terminalRevision
+		}
 	}
 	s.records[id] = r
 	s.save()
 	return clone(r), true
+}
+
+// RuntimeTerminals avoids copying steps/messages or sorting operation history on
+// cache reads. Metadata is rebuilt only when a relevant operation terminates.
+// Only requested discovery scopes are retained; pass since=0 when scopes change.
+func (s *Store) RuntimeTerminals(since uint64, scopes map[string]struct{}) (uint64, map[string]uint64) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if since == s.terminalRevision {
+		return s.terminalRevision, nil
+	}
+	out := make(map[string]uint64)
+	for _, r := range s.records {
+		if _, known := scopes[r.Stack]; !known {
+			continue
+		}
+		if (r.Kind == "deployment" || r.Kind == "removal") && r.Status != "running" {
+			// Restored terminal history predates this process. In-process
+			// generations, unlike wall time, cannot miss a clock-regressing event.
+			out[r.Stack] = max(out[r.Stack], max(uint64(1), r.runtimeVersion))
+		}
+	}
+	return s.terminalRevision, out
 }
 func clone(r Record) Record {
 	r.Steps = append([]Step{}, r.Steps...)

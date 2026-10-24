@@ -269,7 +269,22 @@ func (r *Reconciler) ReconcileStack(ctx context.Context, stackPath string) Recon
 }
 
 func (r *Reconciler) syncStack(ctx context.Context, drift DriftResult, snap *desiredstate.Snapshot) ReconciliationRun {
+	if r.broadcaster != nil {
+		if parent, ok := r.broadcaster.Operations().Get(operations.ID(ctx)); ok && parent.Kind == "action" {
+			r.broadcaster.OperationStep(ctx, "executing", "Executing stack deployment")
+		}
+	}
 	ctx = r.broadcaster.BeginOperation(ctx, "deployment", operations.Trigger(ctx), drift.Path, snap.Revision)
+	initialPhase := "applying"
+	if r.imagePuller != nil {
+		for _, stack := range snap.Stacks {
+			if stack.Path == drift.Path && len(ExtractComposeImages(stack.Content)) > 0 {
+				initialPhase = "pulling"
+				break
+			}
+		}
+	}
+	workID := r.broadcaster.BeginWork(ctx, desiredstate.WorkOptions{Source: "reconcile", Stack: drift.Path, Revision: snap.Revision, Phase: initialPhase})
 	run := ReconciliationRun{
 		StackPath:       drift.Path,
 		DesiredRevision: snap.Revision,
@@ -287,6 +302,11 @@ func (r *Reconciler) syncStack(ctx context.Context, drift DriftResult, snap *des
 		if message == "" {
 			message = "Stack deployed successfully"
 		}
+		workMessage := "Stack deployment completed"
+		if status != "completed" {
+			workMessage = "Stack deployment " + status
+		}
+		r.broadcaster.EndWork(workID, status, workMessage, "")
 		r.broadcaster.EndOperation(ctx, status, message)
 	}()
 
@@ -359,9 +379,11 @@ func (r *Reconciler) syncStack(ctx context.Context, drift DriftResult, snap *des
 		r.broadcaster.OperationStep(ctx, "pulling", "Pulling images declared by this stack")
 		images := ExtractComposeImages(stack.Content)
 		if len(images) > 0 {
+			r.broadcaster.WorkPhase(workID, "pulling", "Pulling images declared by this stack")
 			var onProgress PullProgressFn
 			if r.broadcaster != nil {
 				onProgress = func(p PullProgress) {
+					r.broadcaster.WorkPullProgress(workID, desiredstate.WorkPullProgress{Image: p.Image, LayerID: p.LayerID, Status: p.Status, Current: p.Current, Total: p.Total, BytesCurrent: p.BytesCurrent, BytesTotal: p.BytesTotal, Done: p.Done})
 					r.broadcaster.PublishUpdateProgress(map[string]interface{}{
 						"type":         "image_pull_progress",
 						"source":       "reconcile",
@@ -379,7 +401,9 @@ func (r *Reconciler) syncStack(ctx context.Context, drift DriftResult, snap *des
 					})
 				}
 			}
-			if err := r.imagePuller.PullImages(ctx, images, onProgress); err != nil {
+			err := r.imagePuller.PullImages(ctx, images, onProgress)
+			r.broadcaster.WorkPullFinished(workID, images, err)
+			if err != nil {
 				run.Result = "failed"
 				run.Error = fmt.Sprintf("image pull failed: %v", err)
 				run.FinishedAt = time.Now()
@@ -391,6 +415,7 @@ func (r *Reconciler) syncStack(ctx context.Context, drift DriftResult, snap *des
 	}
 
 	// Run docker compose up
+	r.broadcaster.WorkPhase(workID, "applying", "Applying Compose configuration")
 	r.broadcaster.OperationStep(ctx, "deploying", "Applying Compose configuration")
 	if r.broadcaster != nil {
 		r.broadcaster.PublishUpdateProgress(map[string]interface{}{

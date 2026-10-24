@@ -1,166 +1,79 @@
 <template>
-  <section
-    v-if="progress || store.pullProgress"
-    class="deployment-progress surface"
-    aria-label="Deployment progress"
-  >
-    <div class="progress-heading">
-      <div>
-        <p class="eyebrow">Current operation</p>
-        <p role="status">
-          {{
-            progress?.error || progress?.message || "Pulling container images"
-          }}
-        </p>
-      </div>
-      <span
-        class="tag"
-        :class="{
-          'text-error': progress?.type === 'stack_error' || progress?.errors,
-        }"
-        >{{ phase }}</span
-      >
-    </div>
-    <details v-if="store.pullProgress" class="pull-progress-section">
-      <summary>
-        Image pull details
-        <span class="muted"
-          >· {{ store.pullProgress.stack }} ·
-          {{ store.pullProgress.current }}/{{ store.pullProgress.total }}</span
-        >
-      </summary>
-      <div
-        v-for="img in store.pullProgress.images"
-        :key="img.image"
-        class="pull-image"
-        :data-image="img.image"
-        :data-done="img.done"
-      >
-        <div class="pull-image-heading">
-          <code>{{ img.image }}</code
-          ><span :class="img.done ? 'text-success' : 'muted'">{{
-            img.done ? "Complete" : img.status
-          }}</span>
-        </div>
-        <div
-          v-for="layer in img.layers"
-          :key="layer.id"
-          class="pull-layer"
-          :data-layer-id="layer.id"
-          :data-bytes="layer.bytesCurrent"
-        >
-          <div class="pull-layer-label">
-            <code>{{ layer.id }}</code
-            ><span>{{ layer.status }}</span
-            ><span>{{
-              layer.bytesTotal > 0
-                ? `${formatBytes(layer.bytesCurrent)} / ${formatBytes(layer.bytesTotal)}`
-                : layer.progress
-            }}</span>
-          </div>
-          <progress
-            v-if="layer.bytesTotal > 0"
-            :value="layer.bytesCurrent"
-            :max="layer.bytesTotal"
-            :aria-label="`${img.image} layer ${layer.id} ${layer.status}`"
-          />
-        </div>
-      </div>
+  <section v-if="run" class="run-progress" :class="{ 'run-compact': compact }" :aria-label="`Progress for ${run.stack || 'instance'} run ${run.runId}`">
+    <p class="run-phase" :class="{ 'inventory-sr-only': compact }" role="status">{{ phaseLabel }}<span v-if="stale"> · Last received {{ run.updatedAt }}</span></p>
+    <p v-if="!compact && run.message && !detailUnavailable" class="inventory-secondary">{{ run.message }}</p>
+    <p v-if="compact && run.status === 'failed' && !detailUnavailable" class="inventory-warning">{{ run.message }}</p>
+    <p v-if="run.stackResults && !detailUnavailable" class="inventory-secondary">{{ run.stackResults.processed }} stacks processed · {{ run.stackResults.skipped }} skipped · {{ run.stackResults.failed }} failed</p>
+    <details class="pull-details" @toggle="toggleDetails">
+      <summary><template v-if="compact">{{ phaseLabel }} · </template>Pull details · {{ run.imageCount }} reported images</summary>
+      <p v-if="detailsOpen && detailUnavailable" class="inventory-warning">Previous live details invalidated. Retrieve the outcome from operation history; disappearance does not imply success.</p>
+       <template v-if="detailsOpen && !detailUnavailable">
+       <p v-if="compact && run.message" class="inventory-secondary">{{ run.message }}</p>
+       <p v-if="compact && stale" class="inventory-secondary">Last received {{ run.updatedAt }}</p>
+      <p class="inventory-secondary">Bytes describe each layer’s current phase, not total deployment progress. Runtime still describes the observed containers.</p>
+      <article v-for="image in run.images.slice(0, imageLimit)" :key="image.pullAttemptId" class="pull-image">
+        <strong class="mono">{{ image.reference }}</strong>
+        <p>{{ image.done ? (image.status === 'completed' ? 'Images pulled — deployment may still be applying or pruning' : image.status) : 'Pulling image' }}<span v-if="image.position"> · Image {{ image.position }}<template v-if="image.total"> of {{ image.total }}</template></span></p>
+        <ul class="pull-layers">
+          <li v-for="layer in image.layers.slice(0, layerLimit)" :key="layer.id">
+            <code>{{ layer.id }}</code><span>{{ layer.phase }} · {{ layer.status }}</span>
+            <span>{{ bytes(layer.bytesCurrent) }} / {{ bytes(layer.bytesTotal) }}</span>
+            <progress v-if="layer.bytesTotal != null && layer.bytesTotal > 0 && layer.bytesCurrent != null && ['downloading', 'extracting'].includes(layer.phase)" :value="layer.bytesCurrent" :max="layer.bytesTotal" :aria-label="`${layer.id} ${layer.phase} bytes`" />
+          </li>
+        </ul>
+        <button v-if="image.layers.length > layerLimit" class="text-link" @click="layerLimit += 20">Show 20 more layers</button>
+        <p v-if="image.detailsTruncated" class="inventory-secondary">Some layer details were omitted by the agent.</p>
+      </article>
+      <button v-if="run.images.length > imageLimit" class="text-link" @click="imageLimit += 5">Show 5 more images</button>
+      <p v-if="!run.images.length">Live layer detail unavailable. Durable outcomes are available in the operation history.</p>
+      <p v-if="run.detailsTruncated" class="inventory-secondary">Run detail is incomplete; workflow status remains authoritative.</p>
+      </template>
     </details>
   </section>
+  <p v-else class="inventory-secondary">Detailed live progress unavailable on this agent. Follow the operation stage.</p>
 </template>
-
 <script setup lang="ts">
-import { computed } from 'vue'
-import { useStacksStore } from '../store/stacks'
+import { computed, ref } from 'vue'
+import type { WorkRun } from '../services/work'
 
-const store = useStacksStore()
-const progress = computed(() => store.updateProgress)
-const phase = computed(() => {
-  if (progress.value?.type === 'completed' && progress.value.errors) return 'Completed with errors'
-  if (store.pullProgress) return 'Pulling images'
-  const labels: Record<string, string> = {
-    started: 'Starting',
-    stack_progress: 'Updating',
-    stack_sync_started: 'Preparing',
-    stack_deploying: 'Deploying',
-    pruning: 'Cleaning up',
-    completed: 'Complete',
-    stack_success: 'Deployed',
-    stack_error: 'Failed',
-    cancelled: 'Cancelled',
-  }
-  return labels[progress.value?.type || ''] || 'In progress'
-})
-function formatBytes(bytes: number) {
-  return `${(bytes / 1024 / 1024).toFixed(1)} MiB`
+const props = defineProps<{
+  run?: WorkRun
+  stale?: boolean
+  detailUnavailable?: boolean
+  compact?: boolean
+}>()
+const emit = defineEmits<{ disclosure: [open: boolean] }>()
+const layerLimit = ref(20)
+const imageLimit = ref(5),
+  detailsOpen = ref(false)
+function toggleDetails(event: Event) {
+  detailsOpen.value = (event.target as HTMLDetailsElement).open
+  emit('disclosure', detailsOpen.value)
+}
+const phaseLabel = computed(() =>
+  props.detailUnavailable
+    ? 'Execution outcome not confirmed'
+    : props.run?.status === 'running'
+      ? {
+          waiting: 'Awaiting execution',
+          checking_repository: 'Checking repository',
+          pulling: 'Pulling images',
+          applying: 'Applying Compose',
+          pruning: 'Pruning unused images',
+          finished: 'Finished',
+        }[props.run.phase]
+      : props.run?.status === 'completed'
+        ? 'Run completed · Runtime observation pending'
+        : props.run?.status === 'cancelled'
+          ? 'Cancelled by server'
+          : 'Run failed',
+)
+function bytes(value?: number | null) {
+  if (value == null) return 'unknown'
+  return value >= 1048576
+    ? `${(value / 1048576).toFixed(1)} MiB`
+    : value >= 1024
+      ? `${(value / 1024).toFixed(1)} KiB`
+      : `${value} B`
 }
 </script>
-
-<style scoped>
-.deployment-progress {
-  padding: 18px 22px;
-  margin-bottom: 22px;
-  border-left: 3px solid var(--accent);
-}
-.progress-heading {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-}
-.progress-heading .eyebrow {
-  margin-bottom: 5px;
-}
-.pull-progress-section {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border-color);
-}
-.pull-progress-section summary {
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-.pull-image {
-  margin-top: 16px;
-}
-.pull-image-heading,
-.pull-layer-label {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 12px;
-}
-.pull-layer {
-  padding: 10px 0 0 16px;
-}
-.pull-layer-label {
-  justify-content: flex-start;
-  color: var(--text-secondary);
-}
-.pull-layer-label span:last-child {
-  margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: 11px;
-}
-progress {
-  width: 100%;
-  height: 5px;
-  display: block;
-  margin-top: 8px;
-  accent-color: var(--accent);
-}
-@media (max-width: 640px) {
-  .deployment-progress {
-    padding: 16px;
-  }
-  .progress-heading {
-    align-items: flex-start;
-  }
-  .pull-layer {
-    padding-left: 0;
-  }
-}
-</style>

@@ -17,9 +17,14 @@ jobs:
           cache: true
       - name: Run tests with coverage
         run: go test -coverprofile=coverage.out -covermode=atomic ./...
+      - name: Build backend
+        run: go build ./...
+      - name: Race-check live work and runtime observations
+        run: go test -race ./internal/desiredstate/... ./internal/operations/... ./internal/docker/... ./internal/http/... ./internal/reconcile/... ./internal/scheduler/... ./internal/refresh/...
 
   verify-frontend:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: frontend
@@ -33,10 +38,27 @@ jobs:
       - run: bun run build
       - name: Run tests with coverage
         run: bun run test --coverage
+      # Keep fixture Chromium on a Docker-free runner, isolated from DinD/reaper
+      # network changes that can abort in-flight browser requests.
+      - run: bun install --frozen-lockfile
+        working-directory: tests/e2e
+      - run: bunx playwright install --with-deps chromium
+        working-directory: tests/e2e
+      - name: Frontend browser coverage
+        run: bun run test:frontend
+        working-directory: tests/e2e
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: frontend-playwright-results
+          path: |
+            tests/e2e/playwright-report/frontend/
+            tests/e2e/test-results/frontend/
+          retention-days: 7
 
   verify-gitops-integration:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 40
     env:
       DOCKER_AUTH_CONFIG: '{}'
       GIN_MODE: release
@@ -48,9 +70,9 @@ jobs:
           cache: true
       - name: Verify Docker and Compose prerequisites
         run: docker info && docker compose version
-      - name: Git, signed webhooks, SSE and real DinD lifecycle
+      - name: Full real-Docker lifecycle, image identity and observation coverage
         working-directory: backend
-        run: go test -race -tags integration ./tests/integration -run 'Test(GitOps|SlowPull)Lifecycle' -count=1 -timeout=8m -v
+        run: go test -race -tags integration ./tests/integration/... -count=1 -timeout=30m -v
 
   verify-e2e:
     runs-on: ubuntu-latest
@@ -75,9 +97,6 @@ jobs:
         working-directory: tests/e2e
       - name: Browser GitOps lifecycle against DinD
         run: bun run test
-        working-directory: tests/e2e
-      - name: Frontend browser coverage
-        run: bun run test:frontend
         working-directory: tests/e2e
       - uses: actions/upload-artifact@v7
         if: always()

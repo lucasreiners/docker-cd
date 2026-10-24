@@ -1,64 +1,26 @@
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import StackCard from '../src/components/StackCard.vue'
+import StackTree from '../src/components/StackTree.vue'
 import StatusBadge from '../src/components/StatusBadge.vue'
 import type { StackRecord } from '../src/services/api'
 import { useStacksStore } from '../src/store/stacks'
 
-// Stub naive-ui components for shallow mounting
-const naiveStubs = {
+const inventoryStubs = {
   RouterLink: { template: '<a><slot /></a>', props: ['to'] },
-  NCard: {
-    template: '<div class="n-card"><slot name="header" /><slot /></div>',
-    props: ['hoverable'],
-  },
-  NTag: {
-    template: '<span class="n-tag" :data-type="type"><slot name="icon" /><slot /></span>',
-    props: ['type', 'bordered', 'size', 'round'],
-  },
-  NText: {
-    template: '<span class="n-text"><slot /></span>',
-    props: ['strong', 'depth', 'type', 'code'],
-  },
-  NSpace: {
-    template: '<div class="n-space"><slot /></div>',
-    props: ['vertical', 'size', 'align', 'justify', 'wrap'],
-  },
-  NIcon: { template: '<span class="n-icon"></span>', props: ['component'] },
-  NInput: {
-    template: '<input class="n-input" />',
-    props: ['value', 'placeholder', 'clearable', 'size'],
-  },
-  NAlert: { template: '<div class="n-alert"><slot /></div>', props: ['type', 'title', 'bordered'] },
-  NSpin: { template: '<div class="n-spin"></div>', props: ['size'] },
-  NEmpty: { template: '<div class="n-empty"></div>', props: ['description'] },
 }
 
 // Mock router
 const mockPush = vi.fn()
-vi.mock('vue-router', () => ({
+vi.mock('vue-router', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('vue-router')>()),
   useRouter: () => ({ push: mockPush }),
-  useRoute: () => ({ params: {} }),
+  useRoute: () => ({ params: {}, query: {} }),
   createRouter: vi.fn(),
   createWebHistory: vi.fn(),
 }))
 
-// Mock API
-vi.mock('../src/services/api', () => ({
-  fetchStacks: vi.fn(),
-  fetchRefreshStatus: vi.fn(),
-  fetchContainers: vi.fn(() => Promise.resolve([])),
-  triggerRefresh: vi.fn(() => Promise.resolve()),
-  getEventsURL: vi.fn(() => 'http://localhost:8080/api/events'),
-}))
-
-import { fetchRefreshStatus, fetchStacks } from '../src/services/api'
-
-const _mockFetchStacks = vi.mocked(fetchStacks)
-const _mockFetchRefreshStatus = vi.mocked(fetchRefreshStatus)
-
-describe('StackCard', () => {
+describe('StackTree migrated inventory fields', () => {
   const mockStack: StackRecord = {
     path: 'apps/api',
     composeFile: 'docker-compose.yml',
@@ -67,55 +29,68 @@ describe('StackCard', () => {
     containersRunning: 3,
     containersTotal: 3,
     syncedRevision: 'deadbeef12345678',
+    desiredRevision: 'cafebabe12345678',
     syncedCommitMessage: 'Deploy v2.0',
     lastSyncAt: '2024-06-15T10:30:00Z',
   }
 
   const mountOpts = () => ({
-    props: { stack: mockStack },
+    props: {
+      stacks: [mockStack],
+      runtimeFor: () => ({
+        containers: [
+          {
+            id: 'one',
+            name: 'api-1',
+            service: 'api',
+            image: 'nginx',
+            state: 'running',
+            health: 'none',
+          },
+          {
+            id: 'two',
+            name: 'api-2',
+            service: 'api',
+            image: 'nginx',
+            state: 'exited',
+            health: 'none',
+          },
+        ],
+        loading: false,
+        error: null,
+        observedAt: new Date().toISOString(),
+      }),
+    },
     global: {
       plugins: [createPinia()],
-      stubs: naiveStubs,
+      stubs: inventoryStubs,
       mocks: { $router: { push: mockPush } },
     },
   })
 
   it('renders stack path', () => {
-    const wrapper = mount(StackCard, mountOpts())
+    const wrapper = mount(StackTree, mountOpts())
     expect(wrapper.text()).toContain('apps/api')
   })
 
-  it('renders container count', () => {
-    const wrapper = mount(StackCard, mountOpts())
-    expect(wrapper.text()).toContain('3')
+  it('renders actual observed running counts rather than stale deployment counts', () => {
+    const wrapper = mount(StackTree, mountOpts())
+    expect(wrapper.text()).toContain('1 / 2 running')
+    expect(wrapper.text()).not.toContain('3 / 3 running')
   })
 
-  it('renders truncated revision', () => {
-    const wrapper = mount(StackCard, mountOpts())
-    expect(wrapper.text()).toContain('deadbeef')
-    expect(wrapper.text()).not.toContain('deadbeef12345678')
-  })
-
-  it('renders commit message', () => {
-    const wrapper = mount(StackCard, mountOpts())
-    expect(wrapper.text()).toContain('Deploy v2.0')
-  })
-
-  it('renders error when present', () => {
-    const failedStack: StackRecord = {
-      ...mockStack,
-      status: 'failed',
-      lastSyncError: 'compose up failed: image not found',
+  it('keeps the Image column empty for stacks and populated for containers', () => {
+    const wrapper = mount(StackTree, mountOpts())
+    const stackRow = wrapper.get('.inventory-stack-header')
+    expect(stackRow.get('.inventory-stack-image').text()).toBe('')
+    expect(stackRow.get('.inventory-stack-image').attributes('title')).toBeUndefined()
+    expect(stackRow.text()).not.toContain('cafebabe')
+    expect(stackRow.text()).not.toContain('deadbeef')
+    const containers = wrapper.findAll('[data-container]')
+    expect(containers).toHaveLength(2)
+    for (const container of containers) {
+      expect(container.findAll('td')[2]?.text()).toBe('nginx')
     }
-    const wrapper = mount(StackCard, {
-      props: { stack: failedStack },
-      global: {
-        plugins: [createPinia()],
-        stubs: naiveStubs,
-        mocks: { $router: { push: mockPush } },
-      },
-    })
-    expect(wrapper.text()).toContain('compose up failed: image not found')
   })
 })
 
@@ -123,7 +98,7 @@ describe('StatusBadge', () => {
   const mountBadge = (status: string) =>
     mount(StatusBadge, {
       props: { status },
-      global: { plugins: [createPinia()], stubs: naiveStubs },
+      global: { plugins: [createPinia()], stubs: inventoryStubs },
     })
 
   it('renders synced status', () => {
@@ -157,7 +132,7 @@ describe('StacksGrid (stacks rendering)', () => {
     vi.clearAllMocks()
   })
 
-  it('should render stack cards from store', async () => {
+  it('exposes all stacks for the inventory', async () => {
     const stacks: StackRecord[] = [
       {
         path: 'apps/api',
