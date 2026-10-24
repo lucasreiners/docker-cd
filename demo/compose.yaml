@@ -2,7 +2,7 @@ name: docker-cd-demo
 
 services:
   git:
-    image: gitea/gitea:28.1.0
+    image: gitea/gitea:28.2.0
     environment:
       GITEA__security__INSTALL_LOCK: "true"
       GITEA__security__EGRESS_MODE: strict
@@ -40,7 +40,7 @@ services:
     restart: unless-stopped
 
   dind:
-    image: docker:29.9.0-dind
+    image: docker:29.9.2-dind
     privileged: true
     environment:
       DOCKER_TLS_CERTDIR: ""
