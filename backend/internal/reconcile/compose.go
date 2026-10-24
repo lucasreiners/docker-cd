@@ -24,7 +24,7 @@ func NewDockerComposeRunner(runner docker.CommandRunner, socket string) *DockerC
 	return &DockerComposeRunner{Runner: runner, Socket: socket}
 }
 
-// ComposeUp runs docker compose up -d with the given project name and compose file.
+// ComposeUp runs docker compose up -d --remove-orphans for the given project.
 // If overrideFile is not empty, it is included as an additional -f argument.
 // workDir sets --project-directory so Docker Compose resolves relative paths correctly.
 func (r *DockerComposeRunner) ComposeUp(ctx context.Context, projectName, composeFile, overrideFile, workDir string) error {
@@ -37,7 +37,9 @@ func (r *DockerComposeRunner) ComposeUp(ctx context.Context, projectName, compos
 	if overrideFile != "" {
 		args = append(args, "-f", overrideFile)
 	}
-	args = append(args, "up", "-d")
+	// A service deleted from Git becomes a Compose orphan. Reconcile the whole
+	// project's service set, without downing retained services or deleting volumes.
+	args = append(args, "up", "-d", "--remove-orphans")
 
 	out, err := r.Runner.Run(ctx, "docker", args...)
 	if err != nil {

@@ -293,6 +293,40 @@ test('operational workspace follows real DinD work, reconnects, observations and
       expect((await request.get(`${api}/api/container-logs?stack=apps/web&container=${other!.id}&tail=20`)).ok()).toBe(false)
     })
 
+    await test.step('issue #30: removing one Compose service updates runtime and nested rows without reloading', async () => {
+      await page.locator('.sidebar').getByRole('link', { name: 'Stacks', exact: true }).click()
+      const web = stack(page, 'apps/web')
+      const [cacheBefore] = await containers(request, 'infra/cache')
+      const extra = `  retired:
+    image: busybox:1.38.0
+    container_name: retired-web-service
+    command: [sleep, '3600']
+    stop_grace_period: 1s
+`
+      const withExtra = compose('web-v3').replace('\nvolumes:\n', `\n${extra}volumes:\n`)
+      let revision = await commit(request, { 'apps/web/compose.yaml': withExtra }, 'add service for issue 30')
+      expect((await webhook(request, revision)).ok()).toBeTruthy()
+      await expect(web.locator('[data-container]')).toHaveCount(2)
+      await expect(web.getByRole('button', { name: 'retired-web-service', exact: true })).toBeVisible()
+      const retired = (await containers(request)).find(container => container.service === 'retired')
+      expect(retired?.id).toBeTruthy()
+      revision = await commit(request, { 'apps/web/compose.yaml': compose('web-v3') }, 'remove service for issue 30')
+      expect((await webhook(request, revision)).ok()).toBeTruthy()
+      // Stay on the inventory: no reload/navigation/manual refresh may hide an
+      // orphan or mask a missing automatic runtime invalidation.
+      await expect(web.locator('[data-container]')).toHaveCount(1)
+      await expect(web.getByRole('button', { name: 'web-v3', exact: true })).toBeVisible()
+      await expect(web.getByRole('button', { name: 'retired-web-service', exact: true })).toHaveCount(0)
+      const remaining = await containers(request)
+      expect(remaining.map(container => container.service)).toEqual(['worker'])
+      expect((await containers(request, 'infra/cache')).map(container => container.id)).toEqual([cacheBefore!.id])
+      expect((await request.get(`${api}/api/container-logs?stack=apps/web&container=${retired!.id}&tail=20`)).ok()).toBe(false)
+      expect(await page.evaluate(() => window.gitopsEvidence.documentMarker)).toBe('same-document')
+      await attachJSON(testInfo, 'issue-30-service-removal', { revision, removedContainer: retired, remaining, unrelatedContainer: cacheBefore })
+      await attachScreenshot(page, testInfo, 'issue-30-service-removed')
+      await web.getByRole('link', { name: 'apps/web', exact: true }).click()
+    })
+
     await test.step('real Compose failure publishes a failed v2 outcome and recovery clears the error', async () => {
       const sections = page.getByRole('navigation', { name: 'Stack sections' })
       await sections.getByRole('link', { name: 'Overview', exact: true }).click()

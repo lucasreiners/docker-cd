@@ -64,7 +64,7 @@ func TestComposeUp_BaseArgs(t *testing.T) {
 	}
 
 	args := runner.calls[0].Args
-	expected := []string{"-H", "unix:///var/run/docker.sock", "compose", "-p", "myproject", "-f", "/tmp/compose.yml", "up", "-d"}
+	expected := []string{"-H", "unix:///var/run/docker.sock", "compose", "-p", "myproject", "-f", "/tmp/compose.yml", "up", "-d", "--remove-orphans"}
 	if !sliceEqual(args, expected) {
 		t.Errorf("args = %v, want %v", args, expected)
 	}
