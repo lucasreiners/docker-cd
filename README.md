@@ -124,6 +124,17 @@ runtime revision labels, failure/recovery, SSE transitions, and removal with
 persistent-volume retention. `DOCKER_AUTH_CONFIG='{}'` tells Testcontainers to
 use public-image authentication instead of invoking local credential helpers.
 
+The regression for [issue #30](https://github.com/lucasreiners/docker-cd/issues/30)
+removes individual services from an existing Compose file via Git and a signed
+webhook. It verifies that running and stopped orphan containers are deleted from
+the private daemon, the remaining service and unrelated stack survive, named-volume
+contents remain intact, and runtime APIs no longer list the removed services:
+
+```bash
+go test -race -tags integration ./tests/integration \
+  -run '^TestGitOpsRemovesServiceFromExistingCompose$' -count=1 -timeout=5m -v
+```
+
 ### Browser E2E tests
 
 Install frontend dependencies in `frontend/` with `bun install --frozen-lockfile`.
@@ -139,7 +150,8 @@ Playwright starts Vite on `127.0.0.1:18081` and an integration-only Go test serv
 on `127.0.0.1:18080`, with its own DinD daemon. Both ports must be free. The test
 uses real API/SSE responses and checks initial sync, live card container updates,
 mid-sync reconnect, multi-tab updates, detail-page container replacement,
-failure/recovery, manual image updates, and stack removal. A test-only gate pauses
+failure/recovery, manual image updates, removal of a service from a retained stack,
+and whole-stack removal. A test-only gate pauses
 before real Compose deployment so transient states can be asserted deterministically.
 Test control routes are compiled only with the `integration` build tag and are
 not exposed by the production application.
@@ -208,6 +220,11 @@ confirmation explicitly discloses this scope. **Check Git for changes** can
 interrupt active work and then apply configured reconciliation/removal policy—it
 is not a read-only runtime refresh. No action is automatically replayed after an
 uncertain network response.
+
+Applying an existing stack uses `docker compose up -d --remove-orphans`: containers
+for services deleted from that project's Compose file are removed, without taking
+the entire stack down or passing volume-removal flags. Removing an entire stack
+from Git remains separately controlled by `RECONCILE_REMOVE_ENABLED`.
 
 Agent configuration is read-only in System; edit the deployment environment to
 change it. Operations reports the effective scheduler timezone rather than
