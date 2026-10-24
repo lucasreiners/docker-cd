@@ -1,4 +1,4 @@
-FROM nginx:1.29-alpine
+FROM nginx:1.31-alpine
 RUN apk add --no-cache openssl
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY entrypoint.sh /demo-entrypoint.sh
